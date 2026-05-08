@@ -1,3 +1,9 @@
+variable "aws_profile" {
+  description = "AWS CLI profile to use."
+  type        = string
+  default     = null
+}
+
 variable "region" {
   description = "AWS region. us-east-1 default per spec §8."
   type        = string

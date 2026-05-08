@@ -15,7 +15,7 @@ resource "aws_db_parameter_group" "demo" {
 resource "aws_db_instance" "demo" {
   identifier              = "${var.project}-db"
   engine                  = "postgres"
-  engine_version          = "16.4"
+  engine_version          = "16.6"
   instance_class          = "db.t3.micro"
   allocated_storage       = 20
   storage_type            = "gp3"
