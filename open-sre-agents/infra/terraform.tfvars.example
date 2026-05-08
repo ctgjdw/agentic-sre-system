@@ -1,0 +1,6 @@
+region            = "us-east-1"
+project           = "opensre-demo"
+db_password       = "REPLACE_ME_LONG_RANDOM"
+sut_ingress_cidr  = "0.0.0.0/0"   # tighten to your home IP for safety
+ui_bucket_suffix  = "abc123def"   # 6+ random alphanumeric chars
+sut_desired_count = 0             # flip to 1 after image push

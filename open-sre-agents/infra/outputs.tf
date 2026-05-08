@@ -1,0 +1,39 @@
+output "sut_public_ip" {
+  description = "Stable EIP attached to the SUT EC2 host."
+  value       = aws_eip.sut.public_ip
+}
+
+output "sut_api_url" {
+  description = "Backend base URL for the UI's NEXT_PUBLIC_API_URL."
+  value       = "http://${aws_eip.sut.public_ip}:8080"
+}
+
+output "sut_instance_id" {
+  description = "EC2 instance ID — pass to `aws ssm start-session` for port-forwarding."
+  value       = aws_instance.sut.id
+}
+
+output "rds_endpoint" {
+  description = "RDS endpoint host:port."
+  value       = aws_db_instance.demo.endpoint
+}
+
+output "rds_address" {
+  description = "RDS endpoint host (no port)."
+  value       = aws_db_instance.demo.address
+}
+
+output "ecr_repository_url" {
+  description = "Push backend images here."
+  value       = aws_ecr_repository.sut.repository_url
+}
+
+output "ui_bucket" {
+  description = "Sync the Next.js export here."
+  value       = aws_s3_bucket.ui.bucket
+}
+
+output "ui_website_url" {
+  description = "Public S3 website URL."
+  value       = "http://${aws_s3_bucket_website_configuration.ui.website_endpoint}"
+}
