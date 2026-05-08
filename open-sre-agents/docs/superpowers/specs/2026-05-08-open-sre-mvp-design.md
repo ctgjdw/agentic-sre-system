@@ -2,7 +2,7 @@
 
 **Status:** Approved 2026-05-08
 **Source:** Brainstorming session, 2026-05-08
-**Stack:** AWS Free Tier · ECS-on-EC2 · RDS PostgreSQL · CloudWatch · AWS FIS · OpenSRE (local-CLI on EC2) · Anthropic Claude · Next.js + shadcn/ui
+**Stack:** AWS Free Tier · ECS-on-EC2 · RDS PostgreSQL · CloudWatch · AWS FIS · OpenSRE (local-CLI on EC2) · Anthropic Claude · Telegram Bot API · Next.js + shadcn/ui
 
 ---
 
@@ -10,9 +10,11 @@
 
 Build the smallest end-to-end demo that proves this loop, on AWS Free Tier:
 
-> FIS chaos event → CloudWatch alarm → SNS → Lambda shim → SSM RunCommand on OpenSRE EC2 → `opensre investigate` → RCA posted to Slack via OpenSRE's bot
+> FIS chaos event → CloudWatch alarm → SNS → Lambda shim → SSM RunCommand on OpenSRE EC2 → `opensre investigate` → RCA posted to a Telegram group (where a downstream OpenClaw bot consumes it as input)
 
-This is a **simplified first-cut demo** that takes an alert from AWS, sends it to OpenSRE for diagnosis, and outputs the RCA to Slack for human follow-up. It supersedes the prior `sre-agents/` design (custom 7-agent orchestrator on Fargate + OpenSearch), which was deemed too costly in time and effort for current needs.
+This is a **simplified first-cut demo** that takes an alert from AWS, sends it to OpenSRE for diagnosis, and outputs the RCA to a Telegram group. The group also contains a downstream **OpenClaw bot** that picks up the RCA reports as input for further automation; humans in the group can review the same messages. This supersedes the prior `sre-agents/` design (custom 7-agent orchestrator on Fargate + OpenSearch), which was deemed too costly in time and effort for current needs.
+
+Telegram is reached via OpenSRE's **built-in Telegram messaging integration** (https://opensre.com/docs/messaging/telegram.md), configured by setting `TELEGRAM_BOT_TOKEN` and `TELEGRAM_DEFAULT_CHAT_ID` in the host's environment. `opensre investigate` posts the RCA directly; OpenSRE truncates long reports to Telegram's 4 096-char per-message limit. No sidecar/wrapper script — all messaging is native.
 
 ### Principles (from `CLAUDE.md`)
 
@@ -23,7 +25,7 @@ This is a **simplified first-cut demo** that takes an alert from AWS, sends it t
 
 ### Success criterion
 
-End-to-end demo: operator runs `aws fis start-experiment` for either of the two templates → within ~3 minutes a useful RCA appears in `#sre-incidents` → the audience can read OpenSRE's reasoning, supporting evidence, and recommended next action.
+End-to-end demo: operator runs `aws fis start-experiment` for either of the two templates → within ~3 minutes a useful RCA appears in the configured Telegram group → the audience can read OpenSRE's reasoning, supporting evidence, and recommended next action; the OpenClaw bot in the same group simultaneously ingests the message for downstream automation.
 
 ---
 
@@ -35,7 +37,7 @@ End-to-end demo: operator runs `aws fis start-experiment` for either of the two 
 | 2 | Agent layer | OpenSRE local-CLI binary, running long-lived on a free-tier EC2 host |
 | 3 | Alert ingestion bridge | CloudWatch alarm → SNS → Lambda → `ssm:SendCommand` (with `CloudWatchOutputConfig` enabled) → `opensre investigate -i alert.json` on EC2 |
 | 4 | LLM provider | Anthropic API, default model `claude-sonnet-4-6` (OpenSRE default) |
-| 5 | Output channel | OpenSRE's built-in Slack bot (informational RCA only, no interactive components) |
+| 5 | Output channel | OpenSRE's built-in Telegram messaging integration. Env vars `TELEGRAM_BOT_TOKEN` (from Secrets Manager) and `TELEGRAM_DEFAULT_CHAT_ID` (from a Terraform variable) configure the integration; `opensre investigate` posts directly. Informational RCA only; no inline keyboard/callback handling. The same group hosts a downstream OpenClaw bot that consumes RCAs. |
 | 6 | Chaos surface | Two FIS experiments: `aws:ecs:task-cpu-stress` (compute) and `aws:rds:reboot-db-instances` (data) |
 | 7 | SUT app | Single FastAPI service on ECS-on-EC2, backed by RDS PostgreSQL `db.t3.micro`. JSON API only — `GET /health`, `GET /posts` |
 | 8 | UI app | Separate Next.js (App Router, `output: 'export'`) + Tailwind v4 + shadcn/ui, static-exported to S3 website-hosting bucket |
@@ -100,7 +102,7 @@ End-to-end demo: operator runs `aws fis start-experiment` for either of the two 
                           │   │  • opensre CLI         │    │
                           │   │  • SSM agent           │    │
                           │   │  • configured for:     │    │
-                          │   │    AWS, RDS, CW, Slack │────┼──▶ ┌─────────────────┐
+                          │   │    AWS, RDS, CW       │────┼──▶ ┌─────────────────┐
                           │   │  • LLM_PROVIDER=       │    │    │ Anthropic API   │
                           │   │    anthropic           │    │    │ (claude-sonnet) │
                           │   └──────┬─────────────────┘    │    └─────────────────┘
@@ -119,9 +121,9 @@ End-to-end demo: operator runs `aws fis start-experiment` for either of the two 
    │ (operator   │   fetch /posts → SUT EC2 EIP:8080 (CORS)
    │  & demo     │
    │  audience)  │
-   └─────────────┘                            OpenSRE bot ─────▶ Slack #sre-incidents
-                                              (posts directly
-                                               from EC2)
+   └─────────────┘                            opensre investigate ────▶ Telegram group
+                                              (built-in Telegram        (OpenClaw bot
+                                               integration, from EC2)    also in group)
 ```
 
 ### Single-region, single-account assumption
@@ -139,7 +141,7 @@ Everything provisioned in one AWS account, one region (deployer's choice; defaul
 | **SUT app** | FastAPI, ~80 LOC. Endpoints: `GET /health` (no DB, returns 200), `GET /posts?limit=50` (SELECT from RDS, returns JSON). CORS enabled for the S3 website origin only. | — |
 | **SUT runtime** | ECS service `opensre-demo-sut`, 1 task, EC2 capacity provider with 1× `t3.micro` Amazon Linux 2023 ECS-optimised. Bridge networking, container port 8080 → host 8080. Elastic IP attached to the host so the UI's baked-in API URL is stable. | EC2: 750 free hours / 12 mo (shared with the OpenSRE host — see note in §10). |
 | **Data tier** | RDS PostgreSQL `db.t3.micro`, 20 GB gp3, single-AZ, publicly inaccessible (private subnet, SG allows 5432 from SUT host SG only). One table `posts`. | RDS: 750 free hours + 20 GB / 12 mo. |
-| **OpenSRE host** | Separate t3.micro (Amazon Linux 2023). User-data installs `opensre` (curl install), pulls Anthropic key + Slack bot token from Secrets Manager, writes `/etc/opensre/.env`, runs `opensre onboard` headlessly via env vars, runs `opensre integrations verify` as a smoke test. | EC2: counts toward the same 750-hour pool. Two t3.micros at 100% uptime ≈ 1 460 hours/mo, exceeds 750. Operator tears down between demos, or accepts a few cents/month past the cap. |
+| **OpenSRE host** | Separate t3.micro (Amazon Linux 2023). User-data installs `opensre` via `curl -fsSL https://install.opensre.com \| bash`, pulls Anthropic key + Telegram bot token from Secrets Manager, writes `/etc/opensre/.env` with `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_DEFAULT_CHAT_ID`, runs `opensre integrations verify` (which validates Anthropic + Telegram via Telegram's `getMe` endpoint per the integration docs), and posts a "hello" smoke message via direct curl to the Bot API as a final sanity check. | EC2: counts toward the same 750-hour pool. Two t3.micros at 100% uptime ≈ 1 460 hours/mo, exceeds 750. Operator tears down between demos, or accepts a few cents/month past the cap. |
 | **UI app** | Next.js (App Router) static export, served from `s3://opensre-demo-ui/` with website hosting enabled. shadcn/ui Table + Refresh button + Skeleton loader. Single page. | S3: 5 GB free / 12 mo; bandwidth modest for demos. |
 
 ### DB schema
@@ -169,7 +171,7 @@ Seeded via `scripts/seed_posts.py` (Python `faker` library) with 1 000 fake rows
 | **Lambda `ingest_alarm`** | Python 3.12, 256 MB, timeout 30 s. Receives SNS event, normalises into the alert payload below, calls `ssm:SendCommand` against the OpenSRE host with `CloudWatchOutputConfig` enabled. |
 | **CloudWatch Log group `/aws/ssm/opensre-investigate`** | SSM-streamed stdout/stderr per invocation. 7-day retention. |
 | **CloudWatch Log group `/aws/lambda/ingest_alarm`** | Lambda execution traces. 7-day retention. |
-| **Secrets Manager** | Two secrets: `opensre/anthropic_api_key`, `opensre/slack_bot_token`. Read by the OpenSRE host on boot only. |
+| **Secrets Manager** | Two secrets: `opensre/anthropic_api_key`, `opensre/telegram_bot_token`. Read by the OpenSRE host on boot only. The Telegram chat ID is non-secret and lives in a Terraform variable (`opensre_telegram_chat_id`). |
 | **FIS experiment templates** | Two: `cpu-stress-ecs` (`aws:ecs:task-cpu-stress`), `rds-reboot` (`aws:rds:reboot-db-instances`). Stop conditions: any. Tag-targeted to the SUT (`Project=opensre-demo`). |
 
 ### IAM (least privilege)
@@ -201,7 +203,7 @@ Seeded via `scripts/seed_posts.py` (Python `faker` library) with 1 000 fake rows
 
 ### What we explicitly *don't* deploy
 
-- No DynamoDB / no Slack callback Lambda (no buttons → no callbacks → no state on our side).
+- No DynamoDB / no Telegram-webhook handler (Telegram messages flow one-way out; the bot does not receive updates from the group).
 - No S3 runbook bucket (no runbooks in this MVP — RCA only).
 - No DLQ on SNS or Lambda (acceptable risk for first-cut).
 - No NAT Gateway / VPC endpoints.
@@ -217,7 +219,7 @@ Seeded via `scripts/seed_posts.py` (Python `faker` library) with 1 000 fake rows
 ```
 1. terraform/cdk apply → provisions VPC, RDS, ECS cluster, EC2s, SNS, Lambda, FIS templates,
                          CloudWatch alarms + log group + metric filter, SSM IAM, secrets shells
-2. Populate Secrets Manager: anthropic_api_key, slack_bot_token  (one-time, manual)
+2. Populate Secrets Manager: anthropic_api_key, telegram_bot_token  (one-time, manual)
 3. Wait for OpenSRE host user-data to finish:
      installs opensre → fetches secrets → opensre onboard --headless
                      → opensre integrations verify  (smoke test passes)
@@ -266,20 +268,23 @@ t≈90s     Lambda ingest_alarm fires (SNS event source)
                 )
              e. Return {commandId, alarmName, invocationId} (Lambda exits; investigation continues async)
 
-t≈90..210s  opensre investigate runs on the EC2 host
+t≈90..210s  opensre investigate runs on the EC2 host (invoked by SSM RunCommand,
+             with /etc/opensre/.env sourced beforehand so TELEGRAM_BOT_TOKEN +
+             TELEGRAM_DEFAULT_CHAT_ID are in scope):
             • reads /tmp/alert-*.json
-            • queries AWS via its IAM role (cloudwatch:GetMetricData, ecs:Describe*,
-                                            rds:DescribeEvents, logs:FilterLogEvents)
-            • calls Anthropic API (claude-sonnet-4-6) for the reasoning loop
-            • iterates until confidence threshold or step cap
-            • posts RCA to Slack via its configured bot
+            • queries AWS via its IAM role (cloudwatch:GetMetricData,
+              ecs:Describe*, rds:DescribeEvents, logs:FilterLogEvents)
+            • calls Anthropic API (claude-sonnet-4-6) for the reasoning loop,
+              iterates until confidence threshold or step cap
+            • posts the RCA via OpenSRE's built-in Telegram integration
+              (truncated at 4 096 chars per Telegram per-message limit)
 
-t≈210s    Slack message lands in #sre-incidents
-          stdout/stderr for the entire run is in CloudWatch Logs
-          /aws/ssm/opensre-investigate/<commandId>/.../stdout
+t≈210s    Telegram message lands in the configured group; OpenClaw bot in the same
+          group ingests the RCA. stdout/stderr for the entire run is in CloudWatch
+          Logs /aws/ssm/opensre-investigate/<commandId>/.../stdout
 ```
 
-Total p95 budget: alarm-to-Slack ≈ 3 minutes. The Anthropic call inside the agent loop is the dominant variable; multi-step investigations may push p95 closer to 4 minutes.
+Total p95 budget: alarm-to-Telegram ≈ 3 minutes. The Anthropic call inside the agent loop is the dominant variable; multi-step investigations may push p95 closer to 4 minutes. Telegram POST itself adds <1 s.
 
 ### Alert payload shape (Lambda → opensre)
 
@@ -313,7 +318,7 @@ For the RDS-reboot alarm, `resource.type` is `rds-instance` with `instance_ident
 
 - **No DynamoDB.** OpenSRE owns its own investigation state on the EC2 host (in its working dir). Each invocation is independent.
 - **No deduplication on our side.** If the same alarm fires twice, we run the agent twice. CloudWatch alarms have natural debouncing via evaluation periods.
-- **Slack message is the durable artifact.** Plus the SSM CloudWatch Logs stream for raw stdout/stderr.
+- **Telegram message is the durable artifact.** Plus the SSM CloudWatch Logs stream for raw stdout/stderr (which also captures the curl response from the Bot API, so post-failures are diagnosable).
 
 ---
 
@@ -321,7 +326,7 @@ For the RDS-reboot alarm, `resource.type` is `rds-instance` with `instance_ident
 
 ### Principle
 
-Every failure surfaces in CloudWatch Logs. The operator's debug path is: "Slack didn't show an RCA → check Lambda log group → check SSM log group → SSH to OpenSRE host". For a first-cut demo we accept that some failures result in silent drops; we don't build retry/DLQ infrastructure to handle them.
+Every failure surfaces in CloudWatch Logs. The operator's debug path is: "Telegram didn't show an RCA → check Lambda log group → check SSM log group (the curl response is logged) → SSM-Session into the OpenSRE host". For a first-cut demo we accept that some failures result in silent drops; we don't build retry/DLQ infrastructure to handle them.
 
 ### Taxonomy
 
@@ -331,10 +336,10 @@ Every failure surfaces in CloudWatch Logs. The operator's debug path is: "Slack 
 | `ssm:SendCommand` rejected (host offline / IAM denied / wrong instance ID) | Lambda log group, `botocore.exceptions.ClientError` | Lambda exits non-zero. SNS will retry per delivery policy. Pre-verify the instance ID at deploy time. |
 | OpenSRE host SSM agent disconnected | `SendCommand` returns success; the command never runs | Manual operator inspection. Healthcheck deferred (§8). |
 | `opensre investigate` exits non-zero (config missing, integration not connected, LLM key invalid) | `/aws/ssm/opensre-investigate` stderr stream | Operator inspects the stream; no auto-retry. |
-| Anthropic API rate-limit / 5xx | OpenSRE handles internally (its own retry loop) | Trust OpenSRE; degraded RCA in Slack notes the failure. |
-| Slack post fails (bot not in channel / token expired) | SSM stderr captures OpenSRE's error; the RCA itself is also visible in the SSM stdout stream from the same invocation. | Operator fixes integration and reruns. No auto-repost. |
+| Anthropic API rate-limit / 5xx | OpenSRE handles internally (its own retry loop) | Trust OpenSRE; degraded RCA in Telegram notes the failure. |
+| Telegram POST fails (bot removed from group / token revoked / chat ID wrong) | SSM stdout captures the curl response from `api.telegram.org` (e.g. `{"ok":false,"error_code":403,"description":"Forbidden: bot was kicked from the group chat"}`); the RCA body itself is also visible in the SSM stdout stream from the same invocation. | Operator fixes integration (re-invite bot / rotate token / correct chat ID) and reruns. No auto-repost. |
 | RDS unreachable from OpenSRE during RDS-reboot scenario | Expected — the failure being investigated. OpenSRE uses `DescribeEvents` (control-plane), not a DB connection. | None needed. |
-| OpenSRE EC2 itself dies | Nothing reaches Slack until it's back. | Out of scope. The OpenSRE host is intentionally separate from the SUT so chaos targeting the SUT doesn't take it down. |
+| OpenSRE EC2 itself dies | Nothing reaches Telegram until it's back. | Out of scope. The OpenSRE host is intentionally separate from the SUT so chaos targeting the SUT doesn't take it down. |
 
 ### Hard-coded soft timeout
 
@@ -355,7 +360,7 @@ Both searchable via CloudWatch Logs Insights. No custom metrics, no dashboards i
 
 | Item | Why deferred |
 |---|---|
-| Slack approval/decision buttons | OpenSRE bot doesn't expose them; first-cut is informational RCA only. |
+| Telegram inline keyboard buttons / callback handling | First-cut is informational RCA only; the bot is fire-and-forget. |
 | DynamoDB incident store | OpenSRE owns investigation state; no parallel record needed. |
 | DLQ for SNS / Lambda | First-cut accepts silent drops on persistent failure. Debug via CloudWatch Logs. |
 | Idempotency / dedup on alarms | Acceptable to investigate the same alarm twice. |
@@ -383,11 +388,11 @@ These choices affect *how* we build, not *what* we build, so they belong in the 
 - **IaC tool:** Terraform vs. AWS CDK (Python) vs. SAM. Lean Terraform for AWS-Free-Tier comprehension; CDK acceptable if Python-everywhere is preferred.
 - **Lambda packaging:** zip with vendored boto3 pin, or container image. Likely zip — function is tiny.
 - **Concrete alarm thresholds:** CPU `≥ 80%`, 1 datapoint of 1 min is the starting point; tune during the first dry-run.
-- **OpenSRE Slack channel name + bot scopes:** locked at plan time when the Slack workspace is configured.
+- **Telegram bot token + group chat ID:** locked at plan time when the bot is created via `@BotFather` and added to the group. Chat ID can be retrieved via `https://api.telegram.org/bot<TOKEN>/getUpdates` after sending any message in the group, or by adding `@RawDataBot` / `@userinfobot` to the group temporarily.
 - **SUT EC2 AMI:** Amazon Linux 2023 ECS-optimised. Plan pins the exact AMI ID per region (use SSM Parameter Store alias `/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id`).
 - **DB password handling:** Secrets Manager + RDS-managed-secret rotation, or static for demo. Probably static for first-cut, rotated by hand.
 - **Region default:** `us-east-1` unless the operator specifies otherwise; FIS, ECS, RDS, free tier all consistent there.
-- **Slack workspace + channel:** must exist before bootstrap; bot token captured into Secrets Manager.
+- **Telegram bot + group:** must exist before bootstrap. Bot created via `@BotFather`, token captured into Secrets Manager. Group must contain the OpenSRE bot **and** the downstream OpenClaw bot. Chat ID captured into a Terraform variable. Bot's privacy mode (`/setprivacy` in BotFather) does not affect outbound posts; it only affects what messages the bot itself can read in the group, which is irrelevant here since OpenSRE only posts.
 
 ---
 
@@ -476,12 +481,13 @@ End-to-end demo:
 
 1. Audience opens the S3 website URL → sees the post table populating.
 2. Operator runs `aws fis start-experiment --experiment-template-id <cpu-stress|rds-reboot>`.
-3. Within ~3 minutes, a useful RCA appears in `#sre-incidents` containing:
+3. Within ~3 minutes, a useful RCA appears in the configured Telegram group containing:
    - The alarm that fired
    - Evidence OpenSRE gathered (CloudWatch metrics, logs, RDS events)
    - A hypothesis for root cause
    - A recommended next action
-4. CloudWatch Logs Insights shows the full agent stdout for post-mortem inspection.
+4. The OpenClaw bot in the same Telegram group ingests the same message for downstream automation.
+5. CloudWatch Logs Insights shows the full agent stdout (and the curl response from the Bot API) for post-mortem inspection.
 
 ---
 
