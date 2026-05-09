@@ -52,3 +52,8 @@ output "aws_region" {
   description = "Region resolved from var.region. Helper scripts read this output."
   value       = var.region
 }
+
+output "opensre_host_instance_id" {
+  description = "Pass to `aws ssm send-command` and `aws ssm start-session`. Null when var.opensre_host_enabled = false."
+  value       = var.opensre_host_enabled ? aws_instance.opensre[0].id : null
+}
