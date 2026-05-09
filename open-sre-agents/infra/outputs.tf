@@ -62,3 +62,8 @@ output "opensre_ssm_log_group" {
   description = "CloudWatch Log Group for `opensre investigate` stdout/stderr."
   value       = aws_cloudwatch_log_group.opensre_investigate.name
 }
+
+output "alarms_sns_topic_arn" {
+  description = "SNS topic CloudWatch alarms publish to."
+  value       = aws_sns_topic.opensre_alarms.arn
+}
