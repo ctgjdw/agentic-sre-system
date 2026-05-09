@@ -91,6 +91,120 @@ fi
 PROFILE
 chmod 644 /etc/profile.d/opensre.sh
 
+# --- 3b. Install python3-pip + httpx + load_runner.py for FIS cpu-load-burst ---
+echo "[$(date -u +%FT%TZ)] Installing python3-pip + httpx..."
+apt-get install -y python3-pip
+# Ubuntu 24.04 enforces PEP 668 — use --break-system-packages because the
+# host is single-purpose and not running other Python apps.
+pip3 install --break-system-packages "httpx>=0.28"
+
+mkdir -p /opt/opensre
+cat > /opt/opensre/load_runner.py <<'LOADRUNNEREOF'
+#!/usr/bin/env python3
+"""Realistic mixed-traffic load runner. Mirrors scripts/load_runner.py.
+
+Invoked by the cpu-load-burst FIS template via aws:ssm:send-command. Keep
+in sync with scripts/load_runner.py — Plan 4 final validation diffs them.
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import random
+import sys
+import time
+from urllib.parse import quote
+
+import httpx
+
+VOCAB = [
+    "the", "lorem", "ipsum", "dolor", "sit", "amet", "consectetur",
+    "adipiscing", "elit", "morbi", "vivamus", "donec", "etiam", "fusce",
+    "magna", "nibh", "tristique", "egestas", "luctus", "vehicula",
+    "fermentum", "porttitor",
+]
+USERNAMES = [f"user{i}" for i in range(1, 51)]
+FAKE_IPS = [f"203.0.113.{i}" for i in range(1, 51)]
+ENDPOINTS = [(60, "list"), (20, "detail"), (15, "search"), (5, "like")]
+WEIGHTS = [w for w, _ in ENDPOINTS]
+KINDS = [k for _, k in ENDPOINTS]
+
+
+async def make_request(client, kind, max_id):
+    headers = {"X-Forwarded-For": random.choice(FAKE_IPS)}
+    if kind == "list":
+        limit = random.choice([10, 25, 50, 100])
+        await client.get(f"/posts?limit={limit}", headers=headers)
+    elif kind == "detail":
+        await client.get(f"/posts/{random.randint(1, max_id)}", headers=headers)
+    elif kind == "search":
+        q = random.choice(VOCAB)
+        if random.random() < 0.33:
+            user = random.choice(USERNAMES)
+            await client.get(f"/users/{user}/posts?limit=25", headers=headers)
+        else:
+            await client.get(f"/posts/search?q={quote(q)}", headers=headers)
+    elif kind == "like":
+        await client.post(f"/posts/{random.randint(1, max_id)}/like", headers=headers)
+
+
+async def virtual_user(client, stop_event, max_id):
+    while not stop_event.is_set():
+        kind = random.choices(KINDS, weights=WEIGHTS, k=1)[0]
+        try:
+            await make_request(client, kind, max_id)
+        except Exception:
+            pass
+        await asyncio.sleep(random.uniform(0.1, 0.4))
+
+
+async def run(base_url, duration, ramp, max_vus, max_id):
+    stop_event = asyncio.Event()
+    spawn_interval = ramp / max(1, max_vus)
+    print(
+        f"[load_runner] target={base_url} duration={duration}s "
+        f"ramp={ramp}s max_vus={max_vus} max_id={max_id}",
+        flush=True,
+    )
+    start = time.monotonic()
+    async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as client:
+        tasks = []
+        for _ in range(max_vus):
+            tasks.append(asyncio.create_task(virtual_user(client, stop_event, max_id)))
+            await asyncio.sleep(spawn_interval)
+        elapsed = time.monotonic() - start
+        remaining = max(0.0, duration - elapsed)
+        print(
+            f"[load_runner] {max_vus} VUs spawned in {elapsed:.1f}s; "
+            f"holding {remaining:.1f}s",
+            flush=True,
+        )
+        await asyncio.sleep(remaining)
+        stop_event.set()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    print("[load_runner] completed", flush=True)
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("base_url")
+    p.add_argument("--duration", type=int, default=180)
+    p.add_argument("--ramp", type=int, default=30)
+    p.add_argument("--max-vus", type=int, default=200)
+    p.add_argument("--max-id", type=int, default=10_000)
+    args = p.parse_args()
+    asyncio.run(run(args.base_url, args.duration, args.ramp, args.max_vus, args.max_id))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+LOADRUNNEREOF
+chmod 755 /opt/opensre/load_runner.py
+
+# Sanity-check the runner imports and parses --help on this box.
+python3 /opt/opensre/load_runner.py --help >/dev/null
+
 # --- 4. Source for this script + verify integrations ---
 set -a; . /etc/opensre/.env; set +a
 
