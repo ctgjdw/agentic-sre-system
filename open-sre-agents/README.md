@@ -152,6 +152,31 @@ aws logs tail /ecs/opensre-demo-sut --since 1m --region "$REGION" --format short
 
 After this plan, Plan 5 (`fis-chaos.md`) wires the `cpu-load-burst` FIS template to dispatch the same load runner — so the operator runs `aws fis start-experiment` and the SUT log group fills with the same kind of traffic, but at peak (200 VUs / 3 min) and synchronised with the alarm pipeline.
 
+## Plan 5 quick start (FIS chaos + end-to-end demo)
+
+Builds on Plans 1–4. Adds two FIS experiment templates that trigger the alarms wired up in Plan 3, with the CPU path driven by Plan 4's `load_runner.py`.
+
+```bash
+# 0. Plans 1-4 must be applied with opensre_host_enabled = true and Plan-4 smoke tests passing.
+
+# 1. Apply Plan 5 resources (additive — IAM role + 2 FIS templates).
+cd infra && terraform apply
+
+# 2. CPU-load-burst demo:
+cd ..
+./scripts/start_chaos.sh cpu --follow
+# (Ctrl-C the tail when you've seen opensre investigate complete + Telegram RCA.)
+
+# 3. RDS-reboot demo:
+./scripts/start_chaos.sh rds
+# Drive traffic to make the FastAPI connection pool fail visibly:
+SUT_API=$(cd infra && terraform output -raw sut_api_url)
+for _ in 1 2 3 4 5; do curl -fsS "$SUT_API/posts?limit=1" || true; sleep 3; done
+# Watch the alarm transition + RCA in Telegram.
+```
+
+Each scenario produces an RCA in the configured Telegram group within ~3 minutes of `start_chaos.sh`. The OpenClaw bot in the same group ingests both messages. The CPU-side RCA cites realistic traffic evidence (path mix, varied source IPs from `203.0.113.X`) because Plan 4 expanded the SUT API and added the load runner before this plan wired up the FIS trigger.
+
 ## Teardown
 
 ```bash
