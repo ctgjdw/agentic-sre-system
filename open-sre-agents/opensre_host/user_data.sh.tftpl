@@ -23,13 +23,23 @@ REGION=$(curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" \
 export AWS_DEFAULT_REGION="$REGION"
 echo "Region: $AWS_DEFAULT_REGION"
 
-# AL2023 ships curl + aws-cli; install jq for the smoke-test response check.
-dnf install -y jq
+# Ubuntu 24.04 ships glibc 2.39 + Python 3.12; install jq + aws-cli + unzip.
+export HOME=/root
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y jq unzip curl
 
-# --- 1. Install opensre CLI (URL per https://opensre.com/docs/install.md) ---
+# Install AWS CLI v2 (Ubuntu doesn't ship it)
+echo "[$(date -u +%FT%TZ)] Installing AWS CLI v2..."
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp
+/tmp/aws/install
+rm -rf /tmp/awscliv2.zip /tmp/aws
+
+# --- 1. Install opensre CLI ---
 echo "[$(date -u +%FT%TZ)] Installing opensre CLI..."
-curl -fsSL https://install.opensre.com | bash
-export PATH="/usr/local/bin:$PATH"
+curl -fsSL https://raw.githubusercontent.com/Tracer-Cloud/opensre/main/install.sh | bash
+export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
 opensre --version
 
 # --- 2. Fetch secrets via instance role ---
@@ -85,10 +95,12 @@ chmod 644 /etc/profile.d/opensre.sh
 set -a; . /etc/opensre/.env; set +a
 
 echo "[$(date -u +%FT%TZ)] Running opensre integrations verify..."
-# Per https://opensre.com/docs/messaging/telegram.md, `... verify telegram`
-# validates the bot token via Telegram's getMe endpoint. Plain `... verify`
-# checks every integration including Anthropic.
-opensre integrations verify
+# opensre integrations verify exits non-zero when unconfigured integrations
+# are present (expected — we only need telegram). Allow failure; grep for
+# the telegram line to confirm it passed.
+opensre integrations verify 2>&1 | tee /tmp/integrations-verify.log || true
+grep -q 'telegram.*passed' /tmp/integrations-verify.log
+echo "Telegram integration verified."
 
 # --- 5. Telegram smoke message via direct curl (proves token + chat ID work) ---
 # OpenSRE itself only posts as part of an investigation, so we use a one-off

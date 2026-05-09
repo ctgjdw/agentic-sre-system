@@ -93,16 +93,27 @@ resource "aws_security_group" "opensre_host" {
   tags = { Name = "${var.project}-opensre-host" }
 }
 
-# --- AMI: AL2023 standard (not ECS-optimised; this host doesn't run containers) ---
-data "aws_ssm_parameter" "al2023_ami" {
-  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+# --- AMI: Ubuntu 24.04 LTS (glibc 2.39 + Python 3.12 needed by opensre CLI) ---
+data "aws_ami" "ubuntu_2404" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
 }
 
 # --- EC2 host (gated by var.opensre_host_enabled) ---
 resource "aws_instance" "opensre" {
   count = var.opensre_host_enabled ? 1 : 0
 
-  ami                    = data.aws_ssm_parameter.al2023_ami.value
+  ami                    = data.aws_ami.ubuntu_2404.id
   instance_type          = "t3.micro"
   subnet_id              = aws_subnet.public_a.id
   vpc_security_group_ids = [aws_security_group.opensre_host.id]
