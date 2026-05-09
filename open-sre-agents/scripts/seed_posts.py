@@ -5,10 +5,13 @@
 #   "faker>=30",
 # ]
 # ///
-"""Seed the demo `posts` table with 1 000 rows. Idempotent: skips if >= 1 000 rows exist.
+"""Seed the demo `posts` table with 10 000 rows from a fixed 50-username pool.
 
-Run via SSM Session Manager port-forward (see Task 13):
-    SEED_DATABASE_URL='postgresql://opensre:<pw>@localhost:5432/opensre_demo' \
+Idempotent: skips if the row count already meets ROW_COUNT. Always
+ensures the index exists.
+
+Run via SSM Session Manager port-forward (see Plan 1, Task 13):
+    SEED_DATABASE_URL='postgresql://opensre:<pw>@localhost:5432/opensre_demo' \\
         uv run scripts/seed_posts.py
 """
 
@@ -29,9 +32,15 @@ CREATE TABLE IF NOT EXISTS posts (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS posts_created_at_idx ON posts (created_at DESC);
+CREATE INDEX IF NOT EXISTS posts_author_idx     ON posts (author);
+-- No index on `content`: /posts/search is intentionally CPU-bound under concurrency.
 """
 
-ROW_COUNT = 1_000
+ROW_COUNT = 10_000
+
+# Fixed 50-username pool. /users/{username}/posts must return useful results
+# for any of these names; load_runner.py's USERNAMES list mirrors this.
+USERNAMES = [f"user{i}" for i in range(1, 51)]
 
 
 def main() -> int:
@@ -58,7 +67,7 @@ def main() -> int:
             now = datetime.now(timezone.utc)
             rows = [
                 (
-                    fake.user_name(),
+                    random.choice(USERNAMES),
                     fake.text(max_nb_chars=200),
                     random.randint(0, 500),
                     now - timedelta(seconds=random.randint(0, 30 * 86_400)),
