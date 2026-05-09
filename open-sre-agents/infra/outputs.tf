@@ -67,3 +67,13 @@ output "alarms_sns_topic_arn" {
   description = "SNS topic CloudWatch alarms publish to."
   value       = aws_sns_topic.opensre_alarms.arn
 }
+
+output "alarm_cpu_name" {
+  description = "ECS CPU saturation alarm — pass to `aws cloudwatch set-alarm-state` for manual smoke tests."
+  value       = aws_cloudwatch_metric_alarm.sut_cpu_saturation.alarm_name
+}
+
+output "alarm_db_errors_name" {
+  description = "DB connection-errors alarm — pass to `aws cloudwatch set-alarm-state`."
+  value       = aws_cloudwatch_metric_alarm.sut_db_connection_errors.alarm_name
+}

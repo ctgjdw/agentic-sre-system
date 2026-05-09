@@ -22,3 +22,46 @@ resource "aws_cloudwatch_log_metric_filter" "db_connection_errors" {
     unit          = "Count"
   }
 }
+
+resource "aws_cloudwatch_metric_alarm" "sut_cpu_saturation" {
+  alarm_name          = "sut-cpu-saturation"
+  alarm_description   = "SUT ECS service CPU utilization >= 80% for 1 minute. Plan 3."
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  datapoints_to_alarm = 1
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/ECS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 80
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    ClusterName = aws_ecs_cluster.demo.name
+    ServiceName = aws_ecs_service.sut.name
+  }
+
+  alarm_actions = [aws_sns_topic.opensre_alarms.arn]
+  ok_actions    = []
+  tags          = { Name = "${var.project}-sut-cpu-saturation" }
+}
+
+resource "aws_cloudwatch_metric_alarm" "sut_db_connection_errors" {
+  alarm_name          = "sut-db-connection-errors"
+  alarm_description   = "SUT log group emitted >= 1 DB connection error in 1 minute. Plan 3."
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  datapoints_to_alarm = 1
+  metric_name         = "DBConnectionErrors"
+  namespace           = "OpenSRE/SUT"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.opensre_alarms.arn]
+  ok_actions    = []
+  tags          = { Name = "${var.project}-sut-db-connection-errors" }
+
+  depends_on = [aws_cloudwatch_log_metric_filter.db_connection_errors]
+}
