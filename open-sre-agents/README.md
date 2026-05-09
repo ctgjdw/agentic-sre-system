@@ -86,6 +86,37 @@ cd .. && ./scripts/test_opensre_alert.sh
 
 If the smoke test produces an RCA in the Telegram group (and OpenClaw acknowledges it downstream), Plan 2 is complete.
 
+## Plan 3 quick start (alert pipeline)
+
+Builds on Plan 2. Wires CloudWatch alarms → SNS → Lambda → SSM → OpenSRE host (Plan 2). After this plan, manually setting an alarm to ALARM produces a real RCA in Telegram. Plan 4 adds the FIS chaos triggers.
+
+```bash
+# 0. Plan 2 must be applied with opensre_host_enabled = true. Confirm with:
+cd infra && terraform output opensre_host_instance_id   # prints i-...
+
+# 1. Apply Plan 3 resources (additive on top of Plans 1-2).
+terraform apply
+
+# 2. Smoke test the CPU alarm:
+ALARM_CPU=$(terraform output -raw alarm_cpu_name)
+REGION=$(terraform output -raw aws_region)
+aws cloudwatch set-alarm-state --region "$REGION" \
+  --alarm-name "$ALARM_CPU" --state-value ALARM \
+  --state-reason "Plan-3 smoke"
+
+# 3. Watch the chain react.
+aws logs tail /aws/lambda/ingest_alarm --since 2m --region "$REGION" --follow
+aws logs tail "$(terraform output -raw opensre_ssm_log_group)" --since 5m --region "$REGION" --follow
+
+# 4. Repeat for the DB-errors alarm:
+ALARM_DB=$(terraform output -raw alarm_db_errors_name)
+aws cloudwatch set-alarm-state --region "$REGION" \
+  --alarm-name "$ALARM_DB" --state-value ALARM \
+  --state-reason "Plan-3 smoke"
+```
+
+Both smoke tests should produce RCAs in the configured Telegram group within ~3 minutes of the alarm transition.
+
 ## Teardown
 
 ```bash
