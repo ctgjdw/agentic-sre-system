@@ -1,6 +1,6 @@
 # OpenSRE MVP — Design
 
-**Status:** Approved 2026-05-08
+**Status:** Approved 2026-05-08; revised 2026-05-09 (CPU chaos surface switched from `aws:ecs:task-cpu-stress` to a load-driven burst — see Decision #6 + §4)
 **Source:** Brainstorming session, 2026-05-08
 **Stack:** AWS Free Tier · ECS-on-EC2 · RDS PostgreSQL · CloudWatch · AWS FIS · OpenSRE (local-CLI on EC2) · Anthropic Claude · Telegram Bot API · Next.js + shadcn/ui
 
@@ -38,10 +38,10 @@ End-to-end demo: operator runs `aws fis start-experiment` for either of the two 
 | 3 | Alert ingestion bridge | CloudWatch alarm → SNS → Lambda → `ssm:SendCommand` (with `CloudWatchOutputConfig` enabled) → `opensre investigate -i alert.json` on EC2 |
 | 4 | LLM provider | Anthropic API, default model `claude-sonnet-4-6` (OpenSRE default) |
 | 5 | Output channel | OpenSRE's built-in Telegram messaging integration. Env vars `TELEGRAM_BOT_TOKEN` (from Secrets Manager) and `TELEGRAM_DEFAULT_CHAT_ID` (from a Terraform variable) configure the integration; `opensre investigate` posts directly. Informational RCA only; no inline keyboard/callback handling. The same group hosts a downstream OpenClaw bot that consumes RCAs. |
-| 6 | Chaos surface | Two FIS experiments: `aws:ecs:task-cpu-stress` (compute) and `aws:rds:reboot-db-instances` (data) |
-| 7 | SUT app | Single FastAPI service on ECS-on-EC2, backed by RDS PostgreSQL `db.t3.micro`. JSON API only — `GET /health`, `GET /posts` |
+| 6 | Chaos surface | Two FIS experiments: `cpu-load-burst` and `rds-reboot`. **`cpu-load-burst`** uses the FIS `aws:ssm:send-command` action to invoke a Python `httpx`+`asyncio` load script on the OpenSRE host that drives realistic mixed REST traffic against the SUT (ramp 5→200 VUs over 30 s, hold ~150 s). Load-driven CPU is preferred over `aws:ecs:task-cpu-stress` so the agent can correlate the access-log traffic spike with the CPU saturation in its RCA. **`rds-reboot`** uses `aws:rds:reboot-db-instances` directly. |
+| 7 | SUT app | Single FastAPI service on ECS-on-EC2, backed by RDS PostgreSQL `db.t3.micro`. JSON API: `GET /health`, `GET /posts`, `GET /posts/{id}`, `GET /posts/search?q=<term>` (deliberately non-indexed `ILIKE` + Python-side fuzzy scoring — CPU-bound on the SUT under concurrency), `GET /users/{username}/posts`, `POST /posts/{id}/like`. Uvicorn run with `--proxy-headers --forwarded-allow-ips='*'` so the load script's `X-Forwarded-For` headers vary source IPs in the access log. |
 | 8 | UI app | Separate Next.js (App Router, `output: 'export'`) + Tailwind v4 + shadcn/ui, static-exported to S3 website-hosting bucket |
-| 9 | Workload | None automated. Manual browser refreshes generate traffic. |
+| 9 | Workload | Idle: manual browser refreshes generate baseline traffic. During the `cpu-load-burst` chaos experiment: a `httpx`+`asyncio` Python script (`scripts/load_runner.py`) on the OpenSRE host generates ~200 concurrent VUs of weighted REST traffic for ~3 min, with varied `X-Forwarded-For` headers. |
 | 10 | Alarms | (a) `sut-cpu-saturation` on `AWS/ECS CPUUtilization ≥ 80%` (service-level, percent); (b) `sut-db-connection-errors` on a custom metric from a CloudWatch Logs metric filter |
 | 11 | Persistence | OpenSRE owns its own investigation state on the EC2 host. No DynamoDB on our side. |
 
@@ -66,7 +66,7 @@ End-to-end demo: operator runs `aws fis start-experiment` for either of the two 
                           │   │  ┌─────────────────┐   │    │
                           │   │  │ RDS PostgreSQL  │   │    │
                           │   │  │ db.t3.micro     │   │    │
-                          │   │  │ posts (1k rows) │   │    │
+                          │   │  │ posts (10k rows)│   │    │
                           │   │  └─────────────────┘   │    │
                           │   └──────┬─────────────────┘    │
                           │          │ metrics + logs       │
@@ -126,6 +126,21 @@ End-to-end demo: operator runs `aws fis start-experiment` for either of the two 
                                                integration, from EC2)    also in group)
 ```
 
+### CPU chaos path (cpu-load-burst)
+
+The diagram shows the FIS box pointing at the SUT for both templates, but the CPU path is one hop longer than the RDS path. For `cpu-load-burst`, FIS dispatches an `aws:ssm:send-command` action targeting the OpenSRE host (selected by tag `Role=opensre-agent`), which runs `scripts/load_runner.py`. The script ramps from 5 → 200 concurrent virtual users over 30 s, holds for ~150 s, then exits. It drives weighted mixed REST traffic against the SUT's EIP:
+
+| Weight | Endpoint                       | Behaviour                                      |
+|--------|--------------------------------|------------------------------------------------|
+| 60%    | `GET /posts?limit=N`           | List with random `limit` ∈ {10, 25, 50, 100}   |
+| 20%    | `GET /posts/{id}`              | Detail fetch, random `id` ∈ [1, 10000]         |
+| 15%    | `GET /posts/search?q=<term>`   | Random term from a vocabulary list             |
+| 5%     | `POST /posts/{id}/like`        | Increments `likes` counter                     |
+
+Each request includes `X-Forwarded-For: <random-ip>` from a fixed pool of ~50 fake addresses, so Uvicorn (started with `--proxy-headers --forwarded-allow-ips='*'`) writes the access log with varied source IPs — the agent reading `/ecs/opensre-demo-sut` sees a multi-IP traffic spike, not a single-source hammer. ECS service `CPUUtilization` saturates from the volume of `/posts/search` (non-indexed `ILIKE` + Python-side fuzzy scoring); Alarm 1 fires; the rest of the flow proceeds as diagrammed.
+
+The RDS chaos path (`rds-reboot`) goes through `aws:rds:reboot-db-instances` directly against the SUT's database — no load script involved.
+
 ### Single-region, single-account assumption
 
 Everything provisioned in one AWS account, one region (deployer's choice; default `us-east-1`). Free-tier eligibility resets after 12 months for first-time accounts.
@@ -138,10 +153,10 @@ Everything provisioned in one AWS account, one region (deployer's choice; defaul
 
 | Component | Shape | Free-tier note |
 |---|---|---|
-| **SUT app** | FastAPI, ~80 LOC. Endpoints: `GET /health` (no DB, returns 200), `GET /posts?limit=50` (SELECT from RDS, returns JSON). CORS enabled for the S3 website origin only. | — |
+| **SUT app** | FastAPI, ~200 LOC. Endpoints: `GET /health` (no DB, 200), `GET /posts?limit=N` (paginated list, default 50), `GET /posts/{id}` (single-row fetch by id), `GET /posts/search?q=<term>` (intentionally non-indexed `WHERE content ILIKE '%<term>%'` followed by Python-side fuzzy scoring of matches — CPU-bound on the SUT under concurrency), `GET /users/{username}/posts` (filtered list, indexed on `author`), `POST /posts/{id}/like` (UPDATE — increments `likes`). Uvicorn started with `--proxy-headers --forwarded-allow-ips='*'` so the load script's `X-Forwarded-For` headers populate the access log's source-IP field. CORS enabled for the S3 website origin only. | — |
 | **SUT runtime** | ECS service `opensre-demo-sut`, 1 task, EC2 capacity provider with 1× `t3.micro` Amazon Linux 2023 ECS-optimised. Bridge networking, container port 8080 → host 8080. Elastic IP attached to the host so the UI's baked-in API URL is stable. | EC2: 750 free hours / 12 mo (shared with the OpenSRE host — see note in §10). |
 | **Data tier** | RDS PostgreSQL `db.t3.micro`, 20 GB gp3, single-AZ, publicly inaccessible (private subnet, SG allows 5432 from SUT host SG only). One table `posts`. | RDS: 750 free hours + 20 GB / 12 mo. |
-| **OpenSRE host** | Separate t3.micro (Amazon Linux 2023). User-data installs `opensre` via `curl -fsSL https://install.opensre.com \| bash`, pulls Anthropic key + Telegram bot token from Secrets Manager, writes `/etc/opensre/.env` with `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_DEFAULT_CHAT_ID`, runs `opensre integrations verify` (which validates Anthropic + Telegram via Telegram's `getMe` endpoint per the integration docs), and posts a "hello" smoke message via direct curl to the Bot API as a final sanity check. | EC2: counts toward the same 750-hour pool. Two t3.micros at 100% uptime ≈ 1 460 hours/mo, exceeds 750. Operator tears down between demos, or accepts a few cents/month past the cap. |
+| **OpenSRE host** | Separate t3.micro (Amazon Linux 2023). User-data installs `opensre` via `curl -fsSL https://install.opensre.com \| bash`, pulls Anthropic key + Telegram bot token from Secrets Manager, writes `/etc/opensre/.env` with `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_DEFAULT_CHAT_ID`, runs `opensre integrations verify` (which validates Anthropic + Telegram via Telegram's `getMe` endpoint per the integration docs), and posts a "hello" smoke message via direct curl to the Bot API as a final sanity check. Also installs Python 3.12 + `httpx` and copies `scripts/load_runner.py` to `/opt/opensre/load_runner.py` so the FIS `cpu-load-burst` template can drive load via `aws:ssm:send-command`. Tagged `Role=opensre-agent` for FIS target selection. | EC2: counts toward the same 750-hour pool. Two t3.micros at 100% uptime ≈ 1 460 hours/mo, exceeds 750. Operator tears down between demos, or accepts a few cents/month past the cap. |
 | **UI app** | Next.js (App Router) static export, served from `s3://opensre-demo-ui/` with website hosting enabled. shadcn/ui Table + Refresh button + Skeleton loader. Single page. | S3: 5 GB free / 12 mo; bandwidth modest for demos. |
 
 ### DB schema
@@ -155,9 +170,11 @@ CREATE TABLE posts (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX posts_created_at_idx ON posts (created_at DESC);
+CREATE INDEX posts_author_idx     ON posts (author);
+-- No index on `content`: /posts/search is intentionally CPU-bound under concurrency.
 ```
 
-Seeded via `scripts/seed_posts.py` (Python `faker` library) with 1 000 fake rows: `faker.user_name()`, `faker.text(max_nb_chars=200)`, random likes 0–500, random `created_at` over the last 30 days. Idempotent guard: `count(*)` check before inserting.
+Seeded via `scripts/seed_posts.py` (Python `faker` library) with 10 000 fake rows: `faker.user_name()` drawn from a fixed pool of ~50 distinct usernames (so `/users/{username}/posts` returns useful results), `faker.text(max_nb_chars=200)`, random likes 0–500, random `created_at` over the last 30 days. Idempotent guard: `count(*)` check before inserting. The 10 k row count is chosen so a non-indexed `ILIKE` on `/posts/search` is meaningfully expensive under concurrency without blowing past free-tier storage.
 
 ### Glue & control plane
 
@@ -172,7 +189,7 @@ Seeded via `scripts/seed_posts.py` (Python `faker` library) with 1 000 fake rows
 | **CloudWatch Log group `/aws/ssm/opensre-investigate`** | SSM-streamed stdout/stderr per invocation. 7-day retention. |
 | **CloudWatch Log group `/aws/lambda/ingest_alarm`** | Lambda execution traces. 7-day retention. |
 | **Secrets Manager** | Two secrets: `opensre/anthropic_api_key`, `opensre/telegram_bot_token`. Read by the OpenSRE host on boot only. The Telegram chat ID is non-secret and lives in a Terraform variable (`opensre_telegram_chat_id`). |
-| **FIS experiment templates** | Two: `cpu-stress-ecs` (`aws:ecs:task-cpu-stress`), `rds-reboot` (`aws:rds:reboot-db-instances`). Stop conditions: any. Tag-targeted to the SUT (`Project=opensre-demo`). |
+| **FIS experiment templates** | Two: `cpu-load-burst` and `rds-reboot`. **`cpu-load-burst`** uses the `aws:ssm:send-command` action with `documentArn=arn:aws:ssm:<region>::document/AWS-RunShellScript`, `duration=PT4M`, target type `aws:ec2:instance` selected by tag `Role=opensre-agent`. Document parameter `commands`: `python3 /opt/opensre/load_runner.py http://<sut-eip>:8080 --duration 180 --ramp 30 --max-vus 200`. **`rds-reboot`** uses `aws:rds:reboot-db-instances` against the SUT's RDS instance (target type `aws:rds:db`). Stop conditions: none (both experiments self-terminate). Tag-targeted to the demo (`Project=opensre-demo`). |
 
 ### IAM (least privilege)
 
@@ -188,8 +205,8 @@ Seeded via `scripts/seed_posts.py` (Python `faker` library) with 1 000 fake rows
   - `ssm:SendCommand` scoped to the OpenSRE host's instance ARN
   - `ssm:SendCommand` scoped to `arn:aws:ssm:<region>::document/AWS-RunShellScript`
 - **FIS role:**
-  - For `aws:ecs:task-cpu-stress` (which AWS FIS implements by invoking SSM RunCommand against the ECS task's container instance with the `AWSFIS-Run-CPU-Stress` document): `ecs:DescribeTasks`, `ecs:ListTasks`, `ecs:DescribeContainerInstances`, `ec2:DescribeInstances`, `ssm:SendCommand` on document `AWSFIS-Run-CPU-Stress` and on the SUT container instance, `ssm:ListCommands`, `ssm:CancelCommand`
-  - For `aws:rds:reboot-db-instances`: `rds:RebootDBInstance`, `rds:DescribeDBInstances`
+  - For `aws:ssm:send-command` (used by `cpu-load-burst`): `ssm:SendCommand` scoped to `arn:aws:ssm:<region>::document/AWS-RunShellScript` and to the OpenSRE host's instance ARN (resolved by tag `Role=opensre-agent`); `ssm:ListCommands` and `ssm:CancelCommand` (resource: `*`); `ec2:DescribeInstances` (resource: `*`, for tag resolution). Mirrors AWS's managed `AWSFaultInjectionSimulatorEC2Access` policy, scoped down to the OpenSRE host only.
+  - For `aws:rds:reboot-db-instances`: `rds:RebootDBInstance`, `rds:DescribeDBInstances`.
   - Trust policy: `fis.amazonaws.com`. Plan resolves the exact permissions list by referencing AWS's published FIS-action permission tables at implementation time.
 
 ### Network
@@ -223,7 +240,7 @@ Seeded via `scripts/seed_posts.py` (Python `faker` library) with 1 000 fake rows
 3. Wait for OpenSRE host user-data to finish:
      installs opensre → fetches secrets → opensre onboard --headless
                      → opensre integrations verify  (smoke test passes)
-4. python scripts/seed_posts.py  (against RDS endpoint, inserts 1 000 fake rows; idempotent)
+4. python scripts/seed_posts.py  (against RDS endpoint, inserts 10 000 fake rows; idempotent)
 5. cd ui && NEXT_PUBLIC_API_URL=http://<eip>:8080 npm run build
    aws s3 sync out/ s3://opensre-demo-ui/
 6. Open the S3 website URL → table renders → demo is ready
@@ -232,15 +249,27 @@ Seeded via `scripts/seed_posts.py` (Python `faker` library) with 1 000 fake rows
 ### Per-incident flow
 
 ```
-t=0       Operator runs:  aws fis start-experiment --experiment-template-id <cpu-stress-or-rds-reboot>
+t=0       Operator runs:  aws fis start-experiment --experiment-template-id <cpu-load-burst-or-rds-reboot>
 
-t≈0..30s  FIS effect ramps (CPU stress on the task | RDS reboot in progress)
+t≈0..30s  FIS effect ramps:
+          • cpu-load-burst: FIS dispatches aws:ssm:send-command to the OpenSRE
+            host (selected by tag Role=opensre-agent); load_runner.py begins
+            ramping from 5 → 200 concurrent VUs over 30 s, issuing weighted
+            GET /posts, GET /posts/{id}, GET /posts/search, POST /posts/{id}/like
+            against the SUT EIP. Each request carries an X-Forwarded-For from
+            a fixed pool of fake IPs.
+          • rds-reboot: RDS instance enters the rebooting state; in-flight
+            connections from the SUT are dropped; new pgsql connection
+            attempts during the reboot window fail.
           ↓
           ECS metrics / SUT app logs reflect degradation
           ↓
 t≈60..90s CloudWatch alarm transitions OK → ALARM
-          • CPU scenario: Alarm 1 (sut-cpu-saturation)
-          • RDS scenario: Alarm 2 (sut-db-connection-errors)
+          • CPU scenario: Alarm 1 (sut-cpu-saturation) — fires once Uvicorn
+            saturates its worker on the t3.micro and ECS service
+            CPUUtilization crosses 80%
+          • RDS scenario: Alarm 2 (sut-db-connection-errors) — fires when the
+            CloudWatch Logs metric filter counts ≥1 connection-error log line
           ↓
           Alarm action publishes to SNS topic opensre-alarms
           ↓
@@ -370,7 +399,7 @@ Both searchable via CloudWatch Logs Insights. No custom metrics, no dashboards i
 | Authn/authz on the UI | Public S3 website, public IP backend, SG locks down to operator's IP. |
 | ALB / TLS / DNS | HTTP-only on `<eip>:8080` and the S3 website URL. |
 | OpenSRE host failover / HA | Single t3.micro; if it dies during a demo, that's a known risk. |
-| Workload generator | Manual UI refreshes are the load. |
+| Continuous workload generator | Idle baseline traffic comes from manual UI refreshes; `scripts/load_runner.py` only runs during the `cpu-load-burst` chaos experiment, not as a permanent fixture. |
 | Cost-tracking / budget alarms | Operator tears down between demos. |
 | Self-hosting OpenSRE on LangGraph / Railway | Local CLI on EC2 is the chosen runtime. |
 | Multiple FIS scenarios beyond the locked two | CPU stress + RDS reboot only. |
@@ -393,6 +422,7 @@ These choices affect *how* we build, not *what* we build, so they belong in the 
 - **DB password handling:** Secrets Manager + RDS-managed-secret rotation, or static for demo. Probably static for first-cut, rotated by hand.
 - **Region default:** `us-east-1` unless the operator specifies otherwise; FIS, ECS, RDS, free tier all consistent there.
 - **Telegram bot + group:** must exist before bootstrap. Bot created via `@BotFather`, token captured into Secrets Manager. Group must contain the OpenSRE bot **and** the downstream OpenClaw bot. Chat ID captured into a Terraform variable. Bot's privacy mode (`/setprivacy` in BotFather) does not affect outbound posts; it only affects what messages the bot itself can read in the group, which is irrelevant here since OpenSRE only posts.
+- **Load script tuning (`scripts/load_runner.py`):** max VUs, ramp duration, hold duration, and endpoint-weight mix tune during the first dry-run. Goal: ECS service `CPUUtilization` crosses 80% within ~60 s of FIS dispatch and stays there for ≥60 s so the 1-datapoint/1-min alarm reliably fires. If the t3.micro burst-credit budget exhausts mid-burst (sustained 100% CPU on a burstable instance throttles to baseline), reduce hold duration or shorten the ramp. Endpoint vocabulary, fake-IP pool, and username pool also live in the script and should be sized so access-log entries look genuinely varied.
 
 ---
 
@@ -418,7 +448,7 @@ open-sre-agents/
 ├── backend/
 │   ├── pyproject.toml
 │   ├── src/app/
-│   │   ├── main.py               # FastAPI: GET /health, GET /posts
+│   │   ├── main.py               # FastAPI: GET /health, /posts, /posts/{id}, /posts/search, /users/{u}/posts, POST /posts/{id}/like
 │   │   ├── db.py                 # asyncpg pool
 │   │   └── settings.py           # env-driven config
 │   ├── Dockerfile
@@ -441,15 +471,16 @@ open-sre-agents/
 │       ├── handler.py            # SNS event → SSM SendCommand
 │       └── requirements.txt
 ├── opensre_host/
-│   ├── user_data.sh              # bootstrap: install opensre, fetch secrets, onboard
+│   ├── user_data.sh              # bootstrap: install opensre + python3/httpx + load_runner.py, fetch secrets, onboard
 │   └── opensre_env.template      # /etc/opensre/.env template
 ├── scripts/
-│   ├── seed_posts.py             # 1 000 fake rows via faker
+│   ├── seed_posts.py             # 10 000 fake rows via faker
+│   ├── load_runner.py            # httpx+asyncio mixed REST load — invoked by cpu-load-burst FIS template
 │   ├── deploy_ui.sh              # next build + s3 sync
 │   └── start_chaos.sh            # aws fis start-experiment wrapper
 └── chaos/
-    ├── cpu-stress.json           # FIS template body
-    └── rds-reboot.json           # FIS template body
+    ├── cpu-load-burst.json       # FIS template (aws:ssm:send-command → load_runner.py on OpenSRE host)
+    └── rds-reboot.json           # FIS template (aws:rds:reboot-db-instances)
 ```
 
 ---
@@ -480,7 +511,7 @@ Within first 12 months for a new AWS account:
 End-to-end demo:
 
 1. Audience opens the S3 website URL → sees the post table populating.
-2. Operator runs `aws fis start-experiment --experiment-template-id <cpu-stress|rds-reboot>`.
+2. Operator runs `aws fis start-experiment --experiment-template-id <cpu-load-burst|rds-reboot>`.
 3. Within ~3 minutes, a useful RCA appears in the configured Telegram group containing:
    - The alarm that fired
    - Evidence OpenSRE gathered (CloudWatch metrics, logs, RDS events)

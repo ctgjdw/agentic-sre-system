@@ -1,19 +1,20 @@
-# OpenSRE MVP — Plans 1–4 Overview
+# OpenSRE MVP — Plans 1–5 Overview
 
-**Source spec:** [`2026-05-08-open-sre-mvp-design.md`](../specs/2026-05-08-open-sre-mvp-design.md)
-**Date:** 2026-05-08
-**Purpose:** Context-management aid. Re-load this doc to recover the full mental model of the four-plan rollout when conversation context is reset.
+**Source spec:** [`2026-05-08-open-sre-mvp-design.md`](../specs/2026-05-08-open-sre-mvp-design.md) (revised 2026-05-09 — see §0 of the spec)
+**Date:** 2026-05-08, revised 2026-05-09 (CPU chaos surface switched from `aws:ecs:task-cpu-stress` to a load-driven burst; added Plan 4 to prepare the SUT + OpenSRE host for realistic load)
+**Purpose:** Context-management aid. Re-load this doc to recover the full mental model of the five-plan rollout when conversation context is reset.
 
 ---
 
 ## End-state success criterion (from spec §1, §11)
 
 ```
-Operator: aws fis start-experiment --experiment-template-id <cpu-stress|rds-reboot>
+Operator: aws fis start-experiment --experiment-template-id <cpu-load-burst|rds-reboot>
                                 ↓
             within ~3 minutes, useful RCA in the configured Telegram group:
               • alarm that fired
-              • evidence (CW metrics, logs, RDS events)
+              • evidence (CW metrics, access logs with varied source IPs +
+                weighted endpoint mix, RDS events)
               • root-cause hypothesis
               • recommended next action
             ─ same message also ingested by the OpenClaw bot in the group ─
@@ -26,21 +27,23 @@ Operator: aws fis start-experiment --experiment-template-id <cpu-stress|rds-rebo
 | # | Plan | File | Status | Verifies |
 |---|---|---|---|---|
 | 1 | Foundation + SUT + UI | `2026-05-08-foundation-sut-ui.md` | ✅ Done | Posts table renders in browser; backend on `/posts` returns 1k seeded rows |
-| 2 | OpenSRE host | `2026-05-08-opensre-host.md` | 📝 Drafted (9 tasks) | Synthetic alert via SSM → real RCA in Telegram group |
-| 3 | Alert pipeline | `2026-05-08-alert-pipeline.md` | 📝 Drafted (7 tasks) | Manually-fired CW alarm → Lambda → SSM → host → RCA in Telegram group |
-| 4 | FIS chaos + e2e | `2026-05-08-fis-chaos.md` | 📝 Drafted (6 tasks) | `start_chaos.sh cpu\|rds` → alarm → RCA in Telegram group within ~3 min |
+| 2 | OpenSRE host | `2026-05-08-opensre-host.md` | ✅ Done | Synthetic alert via SSM → real RCA in Telegram group |
+| 3 | Alert pipeline | `2026-05-08-alert-pipeline.md` | ✅ Done | Manually-fired CW alarm → Lambda → SSM → host → RCA in Telegram group |
+| 4 | Realistic-load preparation | `2026-05-09-realistic-load.md` | ✅ Done | SUT API expanded; `load_runner.py` on the OpenSRE host drives 50-VU burst with varied `203.0.113.X` IPs into `/ecs/...` log group; CPU climbs ≥ 50 % |
+| 5 | FIS chaos + e2e | `2026-05-08-fis-chaos.md` | 📝 Drafted (5 tasks) | `start_chaos.sh cpu\|rds` → realistic load (or RDS reboot) → alarm → RCA in Telegram group within ~3 min |
 
 ---
 
 ## Dependency graph
 
 ```
-Plan 1 (foundation) ──────► Plan 2 (host) ──────► Plan 3 (alerts) ──────► Plan 4 (chaos)
-   SUT + UI + RDS              EC2 + opensre        SNS + Lambda           FIS templates
-   provides target             provides agent       provides wiring        provides triggers
+Plan 1 ──► Plan 2 ──► Plan 3 ──► Plan 4 ──────────────► Plan 5
+foundation host       alerts    SUT API + load_runner    FIS templates
+SUT+UI+RDS opensre    SNS+λ     installs on host         drive cpu-load-burst
+                                + 10k rows + indices     + rds-reboot
 ```
 
-Each plan produces an independently-verifiable system. Plan N+1 depends on Plan N being applied + smoke-tested.
+Each plan produces an independently-verifiable system. Plan N+1 depends on Plan N being applied + smoke-tested. Plan 4 is the **prerequisite** for Plan 5's `cpu-load-burst` template — without it, `load_runner.py` doesn't exist on the host.
 
 ---
 
@@ -63,7 +66,7 @@ Each plan produces an independently-verifiable system. Plan N+1 depends on Plan 
 
 ---
 
-## Plan 2 — OpenSRE host 📝
+## Plan 2 — OpenSRE host ✅
 
 **Target file:** `docs/superpowers/plans/2026-05-08-opensre-host.md` (planned ~9 tasks)
 
@@ -93,7 +96,7 @@ Each plan produces an independently-verifiable system. Plan N+1 depends on Plan 
 
 ---
 
-## Plan 3 — Alert pipeline 📝
+## Plan 3 — Alert pipeline ✅
 
 **File:** `docs/superpowers/plans/2026-05-08-alert-pipeline.md` (7 tasks)
 
@@ -125,31 +128,56 @@ Each plan produces an independently-verifiable system. Plan N+1 depends on Plan 
 
 ---
 
-## Plan 4 — FIS chaos + end-to-end 📝
+## Plan 4 — Realistic-load preparation ✅
 
-**File:** `docs/superpowers/plans/2026-05-08-fis-chaos.md` (6 tasks)
+**File:** `docs/superpowers/plans/2026-05-09-realistic-load.md` (12 tasks)
+
+**Goal:** Prepare the SUT and the OpenSRE host so Plan 5's `cpu-load-burst` FIS template can drive realistic, multi-endpoint REST traffic that produces access-log evidence the agent can correlate with CPU saturation. Without this plan, the synthetic in-task `aws:ecs:task-cpu-stress` would saturate CPU but leave the access log silent — the agent then concludes *"CPU is high but I can't see why"* (the unsatisfying RCA observed in the 2026-05-09 smoke test). Plan 4 makes the cause/effect visible in the log group OpenSRE reads.
+
+**New components:**
+- **SUT API expansion:** four new FastAPI handlers (`GET /posts/{id}`, `GET /posts/search?q=…` with non-indexed `ILIKE` + Python-side fuzzy scoring, `GET /users/{username}/posts`, `POST /posts/{id}/like`). Uvicorn started with `--proxy-headers --forwarded-allow-ips='*'` so external `X-Forwarded-For` headers populate the access-log source-IP field.
+- **DB-side preparation:** seed bumped from 1 000 → 10 000 rows from a fixed 50-username pool; `posts_author_idx` added; **no** index on `content` (`/posts/search` is intentionally CPU-bound under concurrency).
+- **`scripts/load_runner.py`** (httpx + asyncio, PEP 723 inline-deps): weighted endpoint mix (60/20/15/5), VU ramp, varied `X-Forwarded-For` from a 50-IP pool in TEST-NET-3 (RFC 5737 `203.0.113.X`).
+- **OpenSRE host bootstrap:** `opensre_host/user_data.sh.tftpl` extended to install `python3-pip` + `httpx` (system-wide via `pip install --break-system-packages`), then write `/opt/opensre/load_runner.py` via heredoc. The host gets replaced on apply (because of `user_data_replace_on_change = true` already in Plan 2) and re-bootstraps with the new tooling.
+
+**New code/edits:**
+- `backend/src/app/main.py` (4 handlers added; CORS `allow_methods` widened to include `POST`).
+- `backend/tests/test_posts.py` (TDD pairs for all 4 handlers — 6 new tests).
+- `backend/Dockerfile` (Uvicorn flags).
+- `scripts/seed_posts.py` (10 k rows + 50-user pool + author index).
+- `scripts/load_runner.py` (new).
+- `opensre_host/user_data.sh.tftpl` (Python install + load runner heredoc).
+
+**Deploy pattern:** code-first (run pytest), then build/push image, force-roll ECS service, re-seed RDS via SSM port-forward, then `terraform apply` to replace the OpenSRE host. Smoke test runs `aws ssm send-command python3 /opt/opensre/load_runner.py http://<eip>:8080 --duration 60 --max-vus 50` and verifies the SUT log group fills with realistic-looking traffic and CPU climbs ≥ 50 %.
+
+**Telegram dependency:** none directly — Plan 4 doesn't touch the alerting chain. The host replacement in Task 10 re-fires the Plan-2 bootstrap "hello" Telegram message as a side effect.
+
+---
+
+## Plan 5 — FIS chaos + end-to-end 📝
+
+**File:** `docs/superpowers/plans/2026-05-08-fis-chaos.md` (5 tasks)
 
 **Goal:** Two FIS experiment templates that, when started, produce real degradation on the SUT, fire Plan 3's alarms, and trigger Plan 2's `opensre investigate` → built-in Telegram messaging chain — meeting the spec §11 success criterion end-to-end.
 
 **New components:**
 - **FIS service role** (trust `fis.amazonaws.com`) with two inline policies:
-  - For `aws:ecs:task-cpu-stress`: `ecs:DescribeTasks`/`ListTasks`/`DescribeContainerInstances`, `ec2:DescribeInstances`, `ssm:SendCommand` on `AWSFIS-Run-CPU-Stress` doc + EC2 instance ARNs in the account/region, `ssm:ListCommands`/`CancelCommand`/`GetCommandInvocation`.
+  - For `aws:ssm:send-command` (used by `cpu-load-burst`): `ssm:SendCommand` on `AWS-RunShellScript` document + EC2 instance ARNs in the account/region (so a host-replace doesn't break the IAM scope), `ssm:ListCommands`/`CancelCommand`/`GetCommandInvocation`, `ec2:DescribeInstances` for tag resolution. Mirrors AWS's managed `AWSFaultInjectionSimulatorEC2Access` policy, scoped down.
   - For `aws:rds:reboot-db-instances`: `rds:RebootDBInstance`, `rds:DescribeDBInstances` on the demo RDS ARN.
-- **`aws_fis_experiment_template.cpu_stress`** (`aws:ecs:task-cpu-stress`): tag-targeted (`Project=opensre-demo`, `selectionMode=ALL`); parameters `duration=PT3M`, `percent=90`, `installDependencies=True`. Stop condition: none.
+- **`aws_fis_experiment_template.cpu_load_burst`** (`aws:ssm:send-command`): targets `aws:ec2:instance` by tag `Role=opensre-agent` (already present on the OpenSRE host from Plan 2); parameters `documentArn=AWS-RunShellScript`, `duration=PT4M`, `documentParameters` JSON-encoded with `commands=["python3 /opt/opensre/load_runner.py http://<eip>:8080 --duration 180 --ramp 30 --max-vus 200 --max-id 10000"]`. Stop condition: none.
 - **`aws_fis_experiment_template.rds_reboot`** (`aws:rds:reboot-db-instances`): targets the demo RDS instance by ARN; parameter `forceFailover=false`. Stop condition: none.
-- **Plan-1 patch:** Plan 4 modifies `infra/ecs_service.tf` to add `enable_ecs_managed_tags = true` + `propagate_tags = "SERVICE"` so the running ECS task carries `Project=opensre-demo` (required for FIS tag-based task targeting). The existing `force_new_deployment = true` causes a rolling task replacement on apply.
 
 **New scripts:**
 - `scripts/start_chaos.sh` — wrapper around `aws fis start-experiment` accepting `cpu` or `rds`; resolves the experiment-template ID via `terraform output`; optional `--follow` tails `/aws/ssm/opensre-investigate`.
 
 **Verification (the MVP success criterion, spec §11):**
-1. `./scripts/start_chaos.sh cpu` → alarm `sut-cpu-saturation` transitions OK→ALARM in 60–120 s; Lambda log shows `ssm:SendCommand sent`; SSM log shows OpenSRE stdout + Bot API `{"ok":true,...}`; RCA in Telegram within ~3 min, bracketed by `[OpenSRE RCA]` / `[OpenSRE END]`, referencing CPU saturation on `opensre-demo-sut`.
+1. `./scripts/start_chaos.sh cpu` → SSM dispatches `load_runner.py` to the OpenSRE host; SUT log group fills with weighted access-log entries (60/20/15/5 mix) with varied `203.0.113.X` source IPs; alarm `sut-cpu-saturation` transitions OK→ALARM in 60–120 s; Lambda log shows `ssm:SendCommand sent`; SSM log shows OpenSRE stdout; RCA in Telegram within ~3 min, citing **traffic-driven evidence** (path mix, source-IP variety, top endpoints).
 2. `./scripts/start_chaos.sh rds` (with light traffic to provoke the connection-pool failure) → alarm `sut-db-connection-errors` transitions in 90–180 s; same chain; RCA references the RDS reboot event.
 3. OpenClaw bot in the same group ingests both RCAs.
 
 **Time budget:** alarm-to-Telegram p95 ≈ 3 min (spec §5). Anthropic API latency dominates; Telegram POST adds <1 s.
 
-**Cost:** ~$0.30 per CPU experiment (3 min × $0.10/action-min); RDS reboot is near-free. A few demo runs/month is well under $1.
+**Cost:** ~$0.40 per CPU experiment (4 min × $0.10/action-min — FIS bills the action's `duration` parameter, not actual run time); RDS reboot is near-free. A few demo runs/month is well under $1. To reduce, lower `duration` to `PT3M` once the load runner reliably completes inside that window.
 
 ---
 
@@ -168,33 +196,38 @@ These hold across all four plans and the design enforces them:
 
 ## Apply order
 
-Each plan must be fully applied + verified before the next one begins, because each Plan N+1 references Plan N's outputs:
+Each plan must be fully applied + verified before the next one begins, because each Plan N+1 references Plan N's outputs (or installed artefacts, in the case of Plan 5 → Plan 4's `load_runner.py`):
 
 ```
-Plan 1 apply -> seed RDS -> deploy UI       (foundation working)
+Plan 1 apply -> seed RDS (1k) -> deploy UI       (foundation working)
    ↓
 Plan 2 apply (host_enabled=false)
 populate Secrets Manager (anthropic, telegram_bot_token)
 Plan 2 apply (host_enabled=true) -> bootstrap "hello" in Telegram
-test_opensre_alert.sh -> RCA in Telegram     (agent layer working)
+test_opensre_alert.sh -> RCA in Telegram          (agent layer working)
    ↓
 Plan 3 apply (additive)
-set-alarm-state -> RCA in Telegram           (alert pipeline working)
+set-alarm-state -> RCA in Telegram                (alert pipeline working)
    ↓
-Plan 4 apply (additive; rolls ECS task for tags)
-start_chaos.sh cpu|rds -> RCA in Telegram   (MVP success criterion ✓)
+Plan 4: backend tests -> push image -> roll ECS
+       -> SSM port-forward -> re-seed RDS to 10k
+       -> terraform apply (replaces OpenSRE host with python3-pip + httpx + load_runner.py)
+       -> SSM RunCommand: load_runner.py 60 s burst -> realistic logs in /ecs/...  (load tooling ready)
+   ↓
+Plan 5 apply (additive; FIS IAM + 2 experiment templates)
+start_chaos.sh cpu|rds -> RCA in Telegram        (MVP success criterion ✓)
 ```
 
-Toggling `var.opensre_host_enabled = false` cleanly tears down Plans 2 and 3 (the EC2 and the Lambda that depends on it) without touching Plans 1, 3 alarms/SNS, or 4 FIS templates. Re-flipping to `true` restores the agent layer.
+Toggling `var.opensre_host_enabled = false` cleanly tears down Plans 2, 3, and 4's host-side install (the EC2 and the Lambda that depends on it) without touching Plans 1, 3 alarms/SNS, 4's backend/seed/script artefacts, or 5's FIS templates. Re-flipping to `true` re-bootstraps the agent layer (re-installs `load_runner.py` from user_data) and restores the chain.
 
 ---
 
 ## How to resume after a context reload
 
 1. Read this doc.
-2. Read the current plan file (Plan 2, 3, or 4) for task-level detail.
+2. Read the current plan file (Plan 2, 3, 4, or 5) for task-level detail.
 3. Read the spec only if the plan is ambiguous — each plan is self-contained.
 4. Run `cd infra && terraform output` and `cd infra && terraform state list` to recover the actual deployed state.
 5. Continue from the first unchecked `- [ ]` step in the current plan.
 
-All four plan files are drafted and should not need re-writing unless the spec changes substantively.
+All five plan files are drafted and should not need re-writing unless the spec changes substantively. The 2026-05-09 spec revision (CPU chaos: synthetic stress → load-driven burst) is the most recent substantive change; if the spec is revised again, re-flow the affected plan(s).
