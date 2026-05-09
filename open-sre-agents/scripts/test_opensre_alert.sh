@@ -15,6 +15,11 @@ INSTANCE_ID=$(cd infra && terraform output -raw opensre_host_instance_id)
 REGION=$(cd infra && terraform output -raw aws_region)
 LOG_GROUP=$(cd infra && terraform output -raw opensre_ssm_log_group)
 
+if [ "$INSTANCE_ID" = "null" ] || [ -z "$INSTANCE_ID" ]; then
+  echo "ERROR: opensre_host_instance_id is null. Set opensre_host_enabled = true in terraform.tfvars and re-apply." >&2
+  exit 1
+fi
+
 ALERT_FILE="${1:-}"
 CLEANUP_FILE=""
 if [ -z "$ALERT_FILE" ]; then
