@@ -77,3 +77,8 @@ output "alarm_db_errors_name" {
   description = "DB connection-errors alarm — pass to `aws cloudwatch set-alarm-state`."
   value       = aws_cloudwatch_metric_alarm.sut_db_connection_errors.alarm_name
 }
+
+output "ingest_alarm_function_name" {
+  description = "Lambda function name. Use for `aws logs tail /aws/lambda/<this>` and manual invokes."
+  value       = aws_lambda_function.ingest_alarm.function_name
+}
