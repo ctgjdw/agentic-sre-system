@@ -54,3 +54,52 @@ def test_posts_default_limit_is_50(mock_pool_factory):
         assert captured["args"] == (50,)
     finally:
         app.dependency_overrides.clear()
+
+
+def test_get_post_by_id_returns_single_post(mock_pool_factory, fixed_now):
+    rows = [
+        {"id": 7, "author": "alice", "content": "hello", "likes": 5, "created_at": fixed_now},
+    ]
+
+    def make_pool(rows):
+        from unittest.mock import AsyncMock, MagicMock
+
+        conn = MagicMock()
+        conn.fetchrow = AsyncMock(return_value=rows[0] if rows else None)
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=conn)
+        cm.__aexit__ = AsyncMock(return_value=None)
+        pool = MagicMock()
+        pool.acquire = MagicMock(return_value=cm)
+        return pool
+
+    app.dependency_overrides[get_pool] = lambda: make_pool(rows)
+    try:
+        client = TestClient(app)
+        response = client.get("/posts/7")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == 7
+        assert body["author"] == "alice"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_post_by_id_returns_404_when_missing(mock_pool_factory):
+    from unittest.mock import AsyncMock, MagicMock
+
+    conn = MagicMock()
+    conn.fetchrow = AsyncMock(return_value=None)
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=conn)
+    cm.__aexit__ = AsyncMock(return_value=None)
+    pool = MagicMock()
+    pool.acquire = MagicMock(return_value=cm)
+
+    app.dependency_overrides[get_pool] = lambda: pool
+    try:
+        client = TestClient(app)
+        response = client.get("/posts/99999")
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()

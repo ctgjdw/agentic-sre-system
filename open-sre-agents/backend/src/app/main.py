@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import close_pool, get_pool, init_pool
@@ -40,3 +40,16 @@ async def posts(limit: int = 50, pool=Depends(get_pool)) -> dict:
             limit,
         )
     return {"posts": [dict(r) for r in rows]}
+
+
+@app.get("/posts/{post_id}")
+async def post_by_id(post_id: int, pool=Depends(get_pool)) -> dict:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, author, content, likes, created_at "
+            "FROM posts WHERE id = $1",
+            post_id,
+        )
+    if row is None:
+        raise HTTPException(status_code=404, detail="post not found")
+    return dict(row)
