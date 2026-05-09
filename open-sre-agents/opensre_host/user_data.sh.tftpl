@@ -220,6 +220,10 @@ echo "Telegram integration verified."
 # OpenSRE itself only posts as part of an investigation, so we use a one-off
 # curl here to confirm the bot is in the group and the chat ID resolves.
 echo "[$(date -u +%FT%TZ)] Posting Telegram bootstrap smoke message..."
+# Refresh IMDSv2 token — the original (60 s TTL) has expired by now.
+TOKEN=$(curl -fsS -X PUT \
+  "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
 HOST_ID=$(curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" \
   http://169.254.169.254/latest/meta-data/instance-id)
 curl -fsS -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
