@@ -57,3 +57,8 @@ output "opensre_host_instance_id" {
   description = "Pass to `aws ssm send-command` and `aws ssm start-session`. Null when var.opensre_host_enabled = false."
   value       = var.opensre_host_enabled ? aws_instance.opensre[0].id : null
 }
+
+output "opensre_ssm_log_group" {
+  description = "CloudWatch Log Group for `opensre investigate` stdout/stderr."
+  value       = aws_cloudwatch_log_group.opensre_investigate.name
+}
