@@ -60,6 +60,7 @@ resource "aws_lambda_function" "ingest_alarm" {
       OPENSRE_HOST_INSTANCE_ID = aws_instance.opensre[0].id
       OPENSRE_SSM_LOG_GROUP    = aws_cloudwatch_log_group.opensre_investigate.name
       SSM_TIMEOUT_SECONDS      = "600"
+      SUT_LOG_GROUP            = aws_cloudwatch_log_group.sut.name
     }
   }
 

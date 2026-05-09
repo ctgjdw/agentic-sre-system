@@ -32,42 +32,101 @@ SSM_TIMEOUT_SECONDS = int(os.environ.get("SSM_TIMEOUT_SECONDS", "600"))
 ssm = boto3.client("ssm")
 
 
-def _build_resource(trigger: dict) -> dict:
-    namespace = trigger.get("Namespace", "")
-    if namespace == "AWS/ECS":
-        dims = {d["name"]: d["value"] for d in trigger.get("Dimensions", [])}
-        return {
-            "type": "ecs-service",
-            "cluster": dims.get("ClusterName", "unknown"),
-            "service": dims.get("ServiceName", "unknown"),
-        }
-    if namespace.startswith("OpenSRE/SUT"):
-        return {
-            "type": "rds-instance",
-            "instance_identifier": "opensre-demo-db",
-        }
-    return {"type": "unknown", "namespace": namespace}
+SUT_LOG_GROUP = os.environ.get("SUT_LOG_GROUP", "/ecs/opensre-demo-sut")
 
 
-def _build_alert_payload(cw_alarm: dict, raw_sns_message: dict, invocation_id: str) -> dict:
-    """Normalise a CloudWatch alarm message into the OpenSRE alert envelope (spec §5.3)."""
+def _build_annotations(cw_alarm: dict) -> dict:
+    """Build annotations that tell OpenSRE where to look for evidence."""
     trigger = cw_alarm.get("Trigger", {})
-    return {
-        "source": "aws-cloudwatch",
-        "alert_name": cw_alarm.get("AlarmName", "unknown"),
-        "state": cw_alarm.get("NewStateValue", "ALARM"),
-        "state_change_time": cw_alarm.get("StateChangeTime"),
-        "region": cw_alarm.get("Region") or os.environ.get("AWS_REGION", "us-east-1"),
-        "resource": _build_resource(trigger),
-        "metric": {
-            "namespace": trigger.get("Namespace"),
-            "name": trigger.get("MetricName"),
-            "threshold": trigger.get("Threshold"),
-            "value_at_breach": None,
-            "period_seconds": trigger.get("Period", 60),
+    namespace = trigger.get("Namespace", "")
+    dims = {d["name"]: d["value"] for d in trigger.get("Dimensions", [])}
+    region = os.environ.get("AWS_REGION", "us-east-1")
+
+    annotations = {
+        "cloudwatch_log_group": SUT_LOG_GROUP,
+        "cloudwatch_region": region,
+        "context_sources": "cloudwatch",
+        "error": cw_alarm.get("NewStateReason", ""),
+    }
+
+    if namespace == "AWS/ECS":
+        annotations.update({
+            "summary": (
+                f"ECS service {dims.get('ServiceName', 'unknown')} in cluster "
+                f"{dims.get('ClusterName', 'unknown')} has CPU >= "
+                f"{trigger.get('Threshold', 80)}% for {trigger.get('Period', 60)}s"
+            ),
+            "ecs_cluster": dims.get("ClusterName", ""),
+            "ecs_service": dims.get("ServiceName", ""),
+        })
+    elif namespace.startswith("OpenSRE/SUT"):
+        annotations.update({
+            "summary": (
+                f"DB connection errors detected: {trigger.get('MetricName', 'DBConnectionErrors')} "
+                f">= {trigger.get('Threshold', 1)} in {trigger.get('Period', 60)}s"
+            ),
+            "rds_instance": "opensre-demo-db",
+        })
+    else:
+        annotations["summary"] = cw_alarm.get("AlarmDescription", "CloudWatch alarm triggered")
+
+    return annotations
+
+
+def _build_alert_payload(cw_alarm: dict, invocation_id: str) -> dict:
+    """Build a Grafana/AlertManager-format payload that OpenSRE can parse."""
+    alarm_name = cw_alarm.get("AlarmName", "unknown")
+    trigger = cw_alarm.get("Trigger", {})
+    dims = {d["name"]: d["value"] for d in trigger.get("Dimensions", [])}
+    pipeline_name = dims.get("ServiceName") or "opensre-demo-sut"
+    annotations = _build_annotations(cw_alarm)
+
+    alert = {
+        "status": "firing",
+        "labels": {
+            "alertname": alarm_name,
+            "severity": "critical",
+            "pipeline_name": pipeline_name,
+            "environment": "demo",
         },
-        "invocation_id": invocation_id,
-        "raw_sns_message": raw_sns_message,
+        "annotations": {
+            "summary": annotations.get("summary", ""),
+            "description": (
+                f"CloudWatch alarm {alarm_name} transitioned to "
+                f"{cw_alarm.get('NewStateValue', 'ALARM')}: "
+                f"{cw_alarm.get('NewStateReason', '')}"
+            ),
+            "runbook_url": "",
+        },
+        "startsAt": cw_alarm.get("StateChangeTime", ""),
+        "endsAt": "0001-01-01T00:00:00Z",
+        "generatorURL": cw_alarm.get("AlarmArn", ""),
+        "fingerprint": invocation_id,
+    }
+
+    return {
+        "alert_name": alarm_name,
+        "pipeline_name": pipeline_name,
+        "severity": "critical",
+        "alerts": [alert],
+        "version": "4",
+        "externalURL": "",
+        "truncatedAlerts": 0,
+        "groupLabels": {"alertname": alarm_name},
+        "commonLabels": {
+            "alertname": alarm_name,
+            "severity": "critical",
+            "pipeline_name": pipeline_name,
+        },
+        "commonAnnotations": annotations,
+        "groupKey": f'{{}}:{{alertname="{alarm_name}"}}',
+        "title": f"[FIRING:1] {alarm_name} critical - {pipeline_name}",
+        "state": "alerting",
+        "message": (
+            f"**Firing**\n\n{annotations.get('summary', '')}\n"
+            f"Alarm: {alarm_name}\nReason: {cw_alarm.get('NewStateReason', '')}"
+        ),
+        "alert_id": invocation_id,
     }
 
 
@@ -79,14 +138,32 @@ def handler(event: dict, _context) -> dict:
     cw_alarm = json.loads(sns_message_str)
 
     invocation_id = str(uuid.uuid4()).lower()
-    payload = _build_alert_payload(cw_alarm, cw_alarm, invocation_id)
+    payload = _build_alert_payload(cw_alarm, invocation_id)
 
     payload_b64 = base64.b64encode(json.dumps(payload).encode()).decode()
     alert_path = f"/tmp/alert-{invocation_id}.json"
 
+    # OpenSRE's AWS integration requires explicit AWS_ACCESS_KEY_ID /
+    # AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN env vars — it doesn't
+    # auto-discover the EC2 instance role. Fetch temporary creds from
+    # IMDSv2 at invocation time so they're always fresh.
+    fetch_aws_creds = (
+        'IMDS_TOKEN=$(curl -fsS -X PUT http://169.254.169.254/latest/api/token'
+        ' -H "X-aws-ec2-metadata-token-ttl-seconds: 60");'
+        " ROLE=$(curl -fsS -H \"X-aws-ec2-metadata-token: $IMDS_TOKEN\""
+        " http://169.254.169.254/latest/meta-data/iam/security-credentials/);"
+        " CREDS=$(curl -fsS -H \"X-aws-ec2-metadata-token: $IMDS_TOKEN\""
+        " http://169.254.169.254/latest/meta-data/iam/security-credentials/$ROLE);"
+        " export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r .AccessKeyId);"
+        " export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r .SecretAccessKey);"
+        " export AWS_SESSION_TOKEN=$(echo $CREDS | jq -r .Token);"
+        " export AWS_DEFAULT_REGION=${AWS_REGION:-us-east-1}"
+    )
+
     commands = [
         f"echo {payload_b64} | base64 -d > {alert_path}",
         "set -a; . /etc/opensre/.env; set +a",
+        fetch_aws_creds,
         f"/usr/local/bin/opensre investigate -i {alert_path}",
     ]
 

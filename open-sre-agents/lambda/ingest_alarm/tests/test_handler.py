@@ -2,8 +2,6 @@ import base64
 import json
 from unittest.mock import patch
 
-import pytest
-
 
 def test_cpu_alarm_invokes_ssm_send_command(cpu_alarm_sns_event, fake_ssm):
     with patch("handler.ssm", fake_ssm):
@@ -22,11 +20,12 @@ def test_cpu_alarm_invokes_ssm_send_command(cpu_alarm_sns_event, fake_ssm):
     }
 
     commands = kwargs["Parameters"]["commands"]
-    assert len(commands) == 3
+    assert len(commands) == 4
     assert commands[0].startswith("echo ")
     assert "| base64 -d > /tmp/alert-" in commands[0]
     assert commands[1] == "set -a; . /etc/opensre/.env; set +a"
-    assert commands[2].startswith("/usr/local/bin/opensre investigate -i /tmp/alert-")
+    assert "AWS_ACCESS_KEY_ID" in commands[2]
+    assert commands[3].startswith("/usr/local/bin/opensre investigate -i /tmp/alert-")
     assert commands[0].split()[1] != ""  # base64 payload is non-empty
 
     assert result["commandId"] == "cmd-uuid-1234"
@@ -34,7 +33,7 @@ def test_cpu_alarm_invokes_ssm_send_command(cpu_alarm_sns_event, fake_ssm):
     assert result["invocationId"]
 
 
-def test_cpu_alarm_payload_has_ecs_resource(cpu_alarm_sns_event, fake_ssm):
+def test_cpu_alarm_payload_is_grafana_format(cpu_alarm_sns_event, fake_ssm):
     with patch("handler.ssm", fake_ssm):
         import handler
         handler.handler(cpu_alarm_sns_event, None)
@@ -42,21 +41,28 @@ def test_cpu_alarm_payload_has_ecs_resource(cpu_alarm_sns_event, fake_ssm):
     payload_b64 = fake_ssm.send_command.call_args.kwargs["Parameters"]["commands"][0].split()[1]
     payload = json.loads(base64.b64decode(payload_b64))
 
-    assert payload["source"] == "aws-cloudwatch"
     assert payload["alert_name"] == "sut-cpu-saturation"
-    assert payload["state"] == "ALARM"
-    assert payload["resource"]["type"] == "ecs-service"
-    assert payload["resource"]["cluster"] == "opensre-demo"
-    assert payload["resource"]["service"] == "opensre-demo-sut"
-    assert payload["metric"]["namespace"] == "AWS/ECS"
-    assert payload["metric"]["name"] == "CPUUtilization"
-    assert payload["metric"]["threshold"] == 80.0
-    assert payload["metric"]["period_seconds"] == 60
-    assert "raw_sns_message" in payload
-    assert payload["raw_sns_message"]["AlarmName"] == "sut-cpu-saturation"
+    assert payload["pipeline_name"] == "opensre-demo-sut"
+    assert payload["severity"] == "critical"
+    assert payload["state"] == "alerting"
+    assert payload["version"] == "4"
+    assert len(payload["alerts"]) == 1
+
+    alert = payload["alerts"][0]
+    assert alert["status"] == "firing"
+    assert alert["labels"]["alertname"] == "sut-cpu-saturation"
+    assert alert["labels"]["pipeline_name"] == "opensre-demo-sut"
+
+    annotations = payload["commonAnnotations"]
+    assert annotations["context_sources"] == "cloudwatch"
+    assert annotations["cloudwatch_log_group"] == "/ecs/opensre-demo-sut"
+    assert annotations["cloudwatch_region"] == "us-east-1"
+    assert annotations["ecs_cluster"] == "opensre-demo"
+    assert annotations["ecs_service"] == "opensre-demo-sut"
+    assert "CPU" in annotations["summary"]
 
 
-def test_db_error_alarm_payload_has_rds_resource(db_error_alarm_sns_event, fake_ssm):
+def test_db_error_alarm_payload_has_rds_annotations(db_error_alarm_sns_event, fake_ssm):
     with patch("handler.ssm", fake_ssm):
         import handler
         handler.handler(db_error_alarm_sns_event, None)
@@ -65,9 +71,10 @@ def test_db_error_alarm_payload_has_rds_resource(db_error_alarm_sns_event, fake_
     payload = json.loads(base64.b64decode(payload_b64))
 
     assert payload["alert_name"] == "sut-db-connection-errors"
-    assert payload["resource"]["type"] == "rds-instance"
-    assert payload["metric"]["namespace"] == "OpenSRE/SUT"
-    assert payload["metric"]["name"] == "DBConnectionErrors"
+    annotations = payload["commonAnnotations"]
+    assert annotations["context_sources"] == "cloudwatch"
+    assert annotations["rds_instance"] == "opensre-demo-db"
+    assert "DB connection errors" in annotations["summary"]
 
 
 def test_handler_generates_unique_invocation_ids(cpu_alarm_sns_event, fake_ssm):
