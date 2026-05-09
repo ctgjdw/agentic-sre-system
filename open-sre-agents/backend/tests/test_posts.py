@@ -105,6 +105,44 @@ def test_get_post_by_id_returns_404_when_missing(mock_pool_factory):
         app.dependency_overrides.clear()
 
 
+def test_posts_by_user_filters_by_author(fixed_now):
+    rows = [
+        {"id": 11, "author": "user1", "content": "a", "likes": 0, "created_at": fixed_now},
+        {"id": 12, "author": "user1", "content": "b", "likes": 0, "created_at": fixed_now},
+    ]
+    captured = {}
+
+    def make_pool():
+        from unittest.mock import AsyncMock, MagicMock
+
+        conn = MagicMock()
+
+        async def fetch(query, *args):
+            captured["query"] = query
+            captured["args"] = args
+            return rows
+
+        conn.fetch = fetch
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=conn)
+        cm.__aexit__ = AsyncMock(return_value=None)
+        pool = MagicMock()
+        pool.acquire = MagicMock(return_value=cm)
+        return pool
+
+    app.dependency_overrides[get_pool] = lambda: make_pool()
+    try:
+        client = TestClient(app)
+        response = client.get("/users/user1/posts?limit=25")
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["posts"]) == 2
+        assert captured["args"] == ("user1", 25)
+        assert "author = $1" in captured["query"]
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_search_orders_by_match_count_desc(fixed_now):
     rows = [
         {"id": 1, "author": "alice", "content": "rust rust rust",  "likes": 0, "created_at": fixed_now},

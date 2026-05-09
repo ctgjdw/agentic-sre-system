@@ -78,3 +78,18 @@ async def post_by_id(post_id: int, pool=Depends(get_pool)) -> dict:
     if row is None:
         raise HTTPException(status_code=404, detail="post not found")
     return dict(row)
+
+
+@app.get("/users/{username}/posts")
+async def posts_by_user(
+    username: str, limit: int = 50, pool=Depends(get_pool)
+) -> dict:
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, author, content, likes, created_at "
+            "FROM posts WHERE author = $1 "
+            "ORDER BY created_at DESC LIMIT $2",
+            username,
+            limit,
+        )
+    return {"posts": [dict(r) for r in rows]}
