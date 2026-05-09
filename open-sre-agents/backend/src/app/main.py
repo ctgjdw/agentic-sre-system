@@ -21,7 +21,7 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.cors_origin],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -93,3 +93,16 @@ async def posts_by_user(
             limit,
         )
     return {"posts": [dict(r) for r in rows]}
+
+
+@app.post("/posts/{post_id}/like")
+async def like_post(post_id: int, pool=Depends(get_pool)) -> dict:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "UPDATE posts SET likes = likes + 1 WHERE id = $1 "
+            "RETURNING id, likes",
+            post_id,
+        )
+    if row is None:
+        raise HTTPException(status_code=404, detail="post not found")
+    return {"id": row["id"], "likes": row["likes"]}

@@ -173,3 +173,45 @@ def test_search_orders_by_match_count_desc(fixed_now):
         assert ids == [1, 3, 2]
     finally:
         app.dependency_overrides.clear()
+
+
+def test_like_post_increments_likes_count():
+    from unittest.mock import AsyncMock, MagicMock
+
+    conn = MagicMock()
+    conn.fetchrow = AsyncMock(return_value={"id": 42, "likes": 6})
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=conn)
+    cm.__aexit__ = AsyncMock(return_value=None)
+    pool = MagicMock()
+    pool.acquire = MagicMock(return_value=cm)
+
+    app.dependency_overrides[get_pool] = lambda: pool
+    try:
+        client = TestClient(app)
+        response = client.post("/posts/42/like")
+        assert response.status_code == 200
+        body = response.json()
+        assert body == {"id": 42, "likes": 6}
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_like_post_returns_404_when_missing():
+    from unittest.mock import AsyncMock, MagicMock
+
+    conn = MagicMock()
+    conn.fetchrow = AsyncMock(return_value=None)
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=conn)
+    cm.__aexit__ = AsyncMock(return_value=None)
+    pool = MagicMock()
+    pool.acquire = MagicMock(return_value=cm)
+
+    app.dependency_overrides[get_pool] = lambda: pool
+    try:
+        client = TestClient(app)
+        response = client.post("/posts/99999/like")
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
