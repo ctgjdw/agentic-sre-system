@@ -82,3 +82,13 @@ output "ingest_alarm_function_name" {
   description = "Lambda function name. Use for `aws logs tail /aws/lambda/<this>` and manual invokes."
   value       = aws_lambda_function.ingest_alarm.function_name
 }
+
+output "fis_cpu_load_burst_template_id" {
+  description = "Pass to: aws fis start-experiment --experiment-template-id <this>"
+  value       = aws_fis_experiment_template.cpu_load_burst.id
+}
+
+output "fis_rds_reboot_template_id" {
+  description = "Pass to: aws fis start-experiment --experiment-template-id <this>"
+  value       = aws_fis_experiment_template.rds_reboot.id
+}
