@@ -37,3 +37,18 @@ output "ui_website_url" {
   description = "Public S3 website URL."
   value       = "http://${aws_s3_bucket_website_configuration.ui.website_endpoint}"
 }
+
+output "anthropic_secret_id" {
+  description = "Run: aws secretsmanager put-secret-value --secret-id <this> --secret-string sk-ant-..."
+  value       = aws_secretsmanager_secret.anthropic.id
+}
+
+output "telegram_secret_id" {
+  description = "Run: aws secretsmanager put-secret-value --secret-id <this> --secret-string <bot-token>"
+  value       = aws_secretsmanager_secret.telegram.id
+}
+
+output "aws_region" {
+  description = "Region resolved from var.region. Helper scripts read this output."
+  value       = var.region
+}

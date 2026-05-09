@@ -4,3 +4,5 @@ db_password       = "REPLACE_ME_LONG_RANDOM"
 sut_ingress_cidr  = "0.0.0.0/0"   # tighten to your home IP for safety
 ui_bucket_suffix  = "abc123def"   # 6+ random alphanumeric chars
 sut_desired_count = 0             # flip to 1 after image push
+opensre_telegram_chat_id = "-1001234567890"   # replace with your group's chat ID (negative number for groups)
+opensre_host_enabled     = false              # flip to true after Secrets Manager values are populated (Plan 2 Task 5)

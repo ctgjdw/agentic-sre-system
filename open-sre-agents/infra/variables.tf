@@ -38,3 +38,14 @@ variable "sut_desired_count" {
   type        = number
   default     = 0
 }
+
+variable "opensre_telegram_chat_id" {
+  description = "Telegram chat ID for the group OpenSRE posts RCAs to (e.g., -1001234567890). Bot must be added to this group. Non-secret, but required."
+  type        = string
+}
+
+variable "opensre_host_enabled" {
+  description = "Set to false on the first apply (creates secret shells only) and true after secrets are populated (creates the EC2)."
+  type        = bool
+  default     = false
+}
