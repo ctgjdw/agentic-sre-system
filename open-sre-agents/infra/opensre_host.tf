@@ -38,8 +38,14 @@ data "aws_iam_policy_document" "opensre_readonly" {
       "rds:DescribeEvents",
       "cloudwatch:GetMetricData",
       "cloudwatch:ListMetrics",
+      "cloudwatch:DescribeAlarms",
+      "logs:DescribeLogGroups",
+      "logs:DescribeLogStreams",
       "logs:FilterLogEvents",
       "logs:GetLogEvents",
+      "logs:StartQuery",
+      "logs:GetQueryResults",
+      "logs:StopQuery",
       "sts:GetCallerIdentity",
     ]
     resources = ["*"]
