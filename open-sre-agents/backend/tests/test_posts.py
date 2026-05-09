@@ -103,3 +103,35 @@ def test_get_post_by_id_returns_404_when_missing(mock_pool_factory):
         assert response.status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+def test_search_orders_by_match_count_desc(fixed_now):
+    rows = [
+        {"id": 1, "author": "alice", "content": "rust rust rust",  "likes": 0, "created_at": fixed_now},
+        {"id": 2, "author": "bob",   "content": "rust",            "likes": 0, "created_at": fixed_now},
+        {"id": 3, "author": "carol", "content": "RuSt rust",       "likes": 0, "created_at": fixed_now},
+    ]
+
+    def make_pool():
+        from unittest.mock import AsyncMock, MagicMock
+
+        conn = MagicMock()
+        conn.fetch = AsyncMock(return_value=rows)
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=conn)
+        cm.__aexit__ = AsyncMock(return_value=None)
+        pool = MagicMock()
+        pool.acquire = MagicMock(return_value=cm)
+        return pool
+
+    app.dependency_overrides[get_pool] = lambda: make_pool()
+    try:
+        client = TestClient(app)
+        response = client.get("/posts/search?q=rust&limit=10")
+        assert response.status_code == 200
+        body = response.json()
+        ids = [p["id"] for p in body["posts"]]
+        # alice (3 occurrences) before carol (2, case-insensitive) before bob (1)
+        assert ids == [1, 3, 2]
+    finally:
+        app.dependency_overrides.clear()

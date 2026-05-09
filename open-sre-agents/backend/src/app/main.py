@@ -42,6 +42,31 @@ async def posts(limit: int = 50, pool=Depends(get_pool)) -> dict:
     return {"posts": [dict(r) for r in rows]}
 
 
+@app.get("/posts/search")
+async def posts_search(q: str, limit: int = 50, pool=Depends(get_pool)) -> dict:
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, author, content, likes, created_at "
+            "FROM posts WHERE content ILIKE $1",
+            f"%{q}%",
+        )
+    needle = q.lower()
+    scored: list[tuple[int, dict]] = []
+    for r in rows:
+        haystack = r["content"].lower()
+        count = 0
+        pos = 0
+        while True:
+            pos = haystack.find(needle, pos)
+            if pos == -1:
+                break
+            count += 1
+            pos += 1
+        scored.append((count, dict(r)))
+    scored.sort(key=lambda t: t[0], reverse=True)
+    return {"posts": [post for _, post in scored[:limit]]}
+
+
 @app.get("/posts/{post_id}")
 async def post_by_id(post_id: int, pool=Depends(get_pool)) -> dict:
     async with pool.acquire() as conn:
