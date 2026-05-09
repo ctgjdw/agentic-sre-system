@@ -1,0 +1,106 @@
+#!/bin/bash
+# OpenSRE host bootstrap. Runs once on EC2 first boot.
+#
+# Logs:   /var/log/opensre-bootstrap/bootstrap.log
+# Marker: /var/log/opensre-bootstrap/bootstrap.ok (touched only on success)
+#
+# Recovery if this fails (typically because secrets are still empty):
+#   cd infra && terraform taint 'aws_instance.opensre[0]' && terraform apply
+
+set -euo pipefail
+
+LOG_DIR=/var/log/opensre-bootstrap
+mkdir -p "$LOG_DIR"
+exec > >(tee -a "$LOG_DIR/bootstrap.log") 2>&1
+echo "[$(date -u +%FT%TZ)] OpenSRE host bootstrap starting"
+
+# --- IMDSv2 token (required on AL2023) ---
+TOKEN=$(curl -fsS -X PUT \
+  "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+REGION=$(curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/placement/region)
+export AWS_DEFAULT_REGION="$REGION"
+echo "Region: $AWS_DEFAULT_REGION"
+
+# AL2023 ships curl + aws-cli; install jq for the smoke-test response check.
+dnf install -y jq
+
+# --- 1. Install opensre CLI (URL per https://opensre.com/docs/install.md) ---
+echo "[$(date -u +%FT%TZ)] Installing opensre CLI..."
+curl -fsSL https://install.opensre.com | bash
+export PATH="/usr/local/bin:$PATH"
+opensre --version
+
+# --- 2. Fetch secrets via instance role ---
+echo "[$(date -u +%FT%TZ)] Fetching secrets..."
+ANTHROPIC_API_KEY=$(aws secretsmanager get-secret-value \
+  --secret-id opensre/anthropic_api_key \
+  --query SecretString --output text)
+TELEGRAM_BOT_TOKEN=$(aws secretsmanager get-secret-value \
+  --secret-id opensre/telegram_bot_token \
+  --query SecretString --output text)
+
+if [ -z "$ANTHROPIC_API_KEY" ] || [ "$ANTHROPIC_API_KEY" = "None" ]; then
+  echo "FATAL: opensre/anthropic_api_key is empty. Populate it via:" >&2
+  echo "  aws secretsmanager put-secret-value --secret-id opensre/anthropic_api_key --secret-string sk-ant-..." >&2
+  exit 1
+fi
+if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ "$TELEGRAM_BOT_TOKEN" = "None" ]; then
+  echo "FATAL: opensre/telegram_bot_token is empty. Populate it via:" >&2
+  echo "  aws secretsmanager put-secret-value --secret-id opensre/telegram_bot_token --secret-string '<bot-token>'" >&2
+  exit 1
+fi
+
+# --- 3. Write env file ---
+# OpenSRE's built-in Telegram messaging reads TELEGRAM_BOT_TOKEN +
+# TELEGRAM_DEFAULT_CHAT_ID per https://opensre.com/docs/messaging/telegram.md.
+# A system-wide profile snippet exports the same vars into every interactive
+# shell so SSM Session Manager invocations also pick them up.
+echo "[$(date -u +%FT%TZ)] Writing /etc/opensre/.env..."
+mkdir -p /etc/opensre
+umask 077
+cat > /etc/opensre/.env <<ENVEOF
+ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
+TELEGRAM_DEFAULT_CHAT_ID=${opensre_telegram_chat_id}
+LLM_PROVIDER=anthropic
+LLM_MODEL=claude-sonnet-4-6
+AWS_REGION=$REGION
+ENVEOF
+chmod 600 /etc/opensre/.env
+
+# Make the env file source-able for any future shell on the box (root + ssm-user).
+cat > /etc/profile.d/opensre.sh <<'PROFILE'
+# Auto-source OpenSRE env vars for interactive shells.
+if [ -f /etc/opensre/.env ]; then
+  set -a
+  . /etc/opensre/.env
+  set +a
+fi
+PROFILE
+chmod 644 /etc/profile.d/opensre.sh
+
+# --- 4. Source for this script + verify integrations ---
+set -a; . /etc/opensre/.env; set +a
+
+echo "[$(date -u +%FT%TZ)] Running opensre integrations verify..."
+# Per https://opensre.com/docs/messaging/telegram.md, `... verify telegram`
+# validates the bot token via Telegram's getMe endpoint. Plain `... verify`
+# checks every integration including Anthropic.
+opensre integrations verify
+
+# --- 5. Telegram smoke message via direct curl (proves token + chat ID work) ---
+# OpenSRE itself only posts as part of an investigation, so we use a one-off
+# curl here to confirm the bot is in the group and the chat ID resolves.
+echo "[$(date -u +%FT%TZ)] Posting Telegram bootstrap smoke message..."
+HOST_ID=$(curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/instance-id)
+curl -fsS -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+  --data-urlencode "chat_id=$TELEGRAM_DEFAULT_CHAT_ID" \
+  --data-urlencode "text=[OpenSRE bootstrap] host $HOST_ID online in $REGION; ready for investigations." \
+  --data-urlencode "disable_web_page_preview=true" \
+  | jq -e '.ok' >/dev/null
+
+echo "[$(date -u +%FT%TZ)] OpenSRE host bootstrap complete"
+touch "$LOG_DIR/bootstrap.ok"
