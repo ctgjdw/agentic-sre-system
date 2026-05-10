@@ -30,10 +30,7 @@ data "aws_iam_policy_document" "fis_ssm_send_command" {
     actions = ["ssm:SendCommand"]
     resources = [
       "arn:aws:ssm:${var.region}::document/AWS-RunShellScript",
-      # Target ARN form: arn:aws:ec2:<region>:<account>:instance/<id>.
-      # We allow any EC2 instance in this account/region rather than
-      # hardcoding the OpenSRE host's ID, so a host-replace (Plan 4
-      # Task 10's user_data_replace_on_change) doesn't require an IAM update.
+      "arn:aws:ssm:${var.region}::document/AWSFIS-Run-CPU-Stress",
       "arn:aws:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:instance/*",
     ]
   }
@@ -80,17 +77,16 @@ resource "aws_iam_role_policy" "fis_rds_reboot" {
   policy = data.aws_iam_policy_document.fis_rds_reboot.json
 }
 
-# CPU saturation via load burst: FIS dispatches aws:ssm:send-command to the
-# OpenSRE host (selected by tag Role=opensre-agent), which runs Plan-4's
-# load_runner.py. The runner ramps to 200 VUs over 30 s, holds for ~150 s,
-# and drives weighted REST traffic against the SUT — saturating ECS service
-# CPUUtilization above 80 % from real-looking access-log evidence.
-#
-# The duration parameter on the FIS action is the *deadline* for the SSM
-# command to complete. We give it 4 minutes (PT4M); the load runner itself
-# exits at ~3 min. If the runner overruns, FIS terminates the command.
+# CPU saturation via two parallel FIS actions:
+#   1. load_runner.py on the OpenSRE host — generates realistic mixed REST
+#      traffic against the SUT, filling access logs with varied source IPs and
+#      weighted endpoint mix (evidence for OpenSRE's investigation).
+#   2. AWSFIS-Run-CPU-Stress on the SUT EC2 host — runs stress-ng to push
+#      ECS CPUUtilization over the alarm threshold. The load runner alone
+#      can't saturate the single Uvicorn worker because it's I/O-bound;
+#      stress-ng ensures the metric actually trips the alarm.
 resource "aws_fis_experiment_template" "cpu_load_burst" {
-  description = "Drive 200-VU mixed REST load on the SUT to trigger sut-cpu-saturation"
+  description = "CPU stress on SUT host + load traffic for access-log evidence"
   role_arn    = aws_iam_role.fis.arn
 
   stop_condition {
@@ -108,10 +104,18 @@ resource "aws_fis_experiment_template" "cpu_load_burst" {
     }
   }
 
+  target {
+    name           = "SUTHost"
+    resource_type  = "aws:ec2:instance"
+    selection_mode = "ALL"
+
+    resource_arns = [aws_instance.sut.arn]
+  }
+
   action {
     name        = "send-load-burst"
     action_id   = "aws:ssm:send-command"
-    description = "Run load_runner.py via AWS-RunShellScript on the OpenSRE host"
+    description = "Run load_runner.py on the OpenSRE host for access-log evidence"
 
     parameter {
       key   = "documentArn"
@@ -121,13 +125,11 @@ resource "aws_fis_experiment_template" "cpu_load_burst" {
       key   = "duration"
       value = "PT4M"
     }
-    # documentParameters value must be a JSON string per the FIS docs.
-    # `commands` is a list of shell command strings to execute serially.
     parameter {
       key = "documentParameters"
       value = jsonencode({
         commands = [
-          "python3 /opt/opensre/load_runner.py http://${aws_eip.sut.public_ip}:8080 --duration 180 --ramp 30 --max-vus 200 --max-id 10000"
+          "python3 /opt/opensre/load_runner.py http://${aws_eip.sut.public_ip}:8080 --duration 180 --ramp 5 --max-vus 5000 --max-id 10000"
         ]
       })
     }
@@ -135,6 +137,34 @@ resource "aws_fis_experiment_template" "cpu_load_burst" {
     target {
       key   = "Instances"
       value = "OpenSREHost"
+    }
+  }
+
+  action {
+    name        = "cpu-stress-sut"
+    action_id   = "aws:ssm:send-command"
+    description = "Run stress-ng on the SUT EC2 host to push ECS CPUUtilization over threshold"
+
+    parameter {
+      key   = "documentArn"
+      value = "arn:aws:ssm:${var.region}::document/AWSFIS-Run-CPU-Stress"
+    }
+    parameter {
+      key   = "duration"
+      value = "PT3M"
+    }
+    parameter {
+      key = "documentParameters"
+      value = jsonencode({
+        DurationSeconds     = "150"
+        CPU                 = "0"
+        InstallDependencies = "True"
+      })
+    }
+
+    target {
+      key   = "Instances"
+      value = "SUTHost"
     }
   }
 

@@ -25,20 +25,19 @@ resource "aws_cloudwatch_log_metric_filter" "db_connection_errors" {
 
 resource "aws_cloudwatch_metric_alarm" "sut_cpu_saturation" {
   alarm_name          = "sut-cpu-saturation"
-  alarm_description   = "SUT ECS service CPU utilization >= 80% for 1 minute. Plan 3."
+  alarm_description   = "SUT EC2 host CPU utilization >= 50% for 10 seconds."
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 1
   datapoints_to_alarm = 1
   metric_name         = "CPUUtilization"
-  namespace           = "AWS/ECS"
-  period              = 60
+  namespace           = "AWS/EC2"
+  period              = 10
   statistic           = "Average"
-  threshold           = 80
+  threshold           = 50
   treat_missing_data  = "notBreaching"
 
   dimensions = {
-    ClusterName = aws_ecs_cluster.demo.name
-    ServiceName = aws_ecs_service.sut.name
+    InstanceId = aws_instance.sut.id
   }
 
   alarm_actions = [aws_sns_topic.opensre_alarms.arn]

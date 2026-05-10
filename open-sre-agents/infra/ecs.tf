@@ -77,6 +77,7 @@ resource "aws_instance" "sut" {
   subnet_id              = aws_subnet.public_a.id
   vpc_security_group_ids = [aws_security_group.sut_host.id]
   iam_instance_profile   = aws_iam_instance_profile.sut_host.name
+  monitoring             = true
 
   user_data = <<-EOT
     #!/bin/bash
