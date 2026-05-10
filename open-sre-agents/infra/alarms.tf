@@ -12,7 +12,7 @@ resource "aws_cloudwatch_log_group" "ingest_alarm" {
 resource "aws_cloudwatch_log_metric_filter" "db_connection_errors" {
   name           = "${var.project}-db-connection-errors"
   log_group_name = aws_cloudwatch_log_group.sut.name
-  pattern        = "?\"could not connect to server\" ?\"connection timeout\" ?\"OperationalError\""
+  pattern        = "?\"could not connect to server\" ?\"connection timeout\" ?\"OperationalError\" ?\"ConnectionRefusedError\" ?\"Connection refused\""
 
   metric_transformation {
     name          = "DBConnectionErrors"
