@@ -30,7 +30,7 @@ Operator: aws fis start-experiment --experiment-template-id <cpu-load-burst|rds-
 | 2 | OpenSRE host | `2026-05-08-opensre-host.md` | ✅ Done | Synthetic alert via SSM → real RCA in Telegram group |
 | 3 | Alert pipeline | `2026-05-08-alert-pipeline.md` | ✅ Done | Manually-fired CW alarm → Lambda → SSM → host → RCA in Telegram group |
 | 4 | Realistic-load preparation | `2026-05-09-realistic-load.md` | ✅ Done | SUT API expanded; `load_runner.py` on the OpenSRE host drives 50-VU burst with varied `203.0.113.X` IPs into `/ecs/...` log group; CPU climbs ≥ 50 % |
-| 5 | FIS chaos + e2e | `2026-05-08-fis-chaos.md` | 📝 Drafted (5 tasks) | `start_chaos.sh cpu\|rds` → realistic load (or RDS reboot) → alarm → RCA in Telegram group within ~3 min |
+| 5 | FIS chaos + e2e | `2026-05-08-fis-chaos.md` | ✅ Done | `start_chaos.sh cpu\|rds` → stress-ng + realistic load (or RDS reboot) → alarm → RCA in Telegram group within ~3 min |
 
 ---
 
@@ -154,30 +154,34 @@ Each plan produces an independently-verifiable system. Plan N+1 depends on Plan 
 
 ---
 
-## Plan 5 — FIS chaos + end-to-end 📝
+## Plan 5 — FIS chaos + end-to-end ✅
 
 **File:** `docs/superpowers/plans/2026-05-08-fis-chaos.md` (5 tasks)
 
 **Goal:** Two FIS experiment templates that, when started, produce real degradation on the SUT, fire Plan 3's alarms, and trigger Plan 2's `opensre investigate` → built-in Telegram messaging chain — meeting the spec §11 success criterion end-to-end.
 
-**New components:**
+**What it built:**
 - **FIS service role** (trust `fis.amazonaws.com`) with two inline policies:
-  - For `aws:ssm:send-command` (used by `cpu-load-burst`): `ssm:SendCommand` on `AWS-RunShellScript` document + EC2 instance ARNs in the account/region (so a host-replace doesn't break the IAM scope), `ssm:ListCommands`/`CancelCommand`/`GetCommandInvocation`, `ec2:DescribeInstances` for tag resolution. Mirrors AWS's managed `AWSFaultInjectionSimulatorEC2Access` policy, scoped down.
+  - For `aws:ssm:send-command`: `ssm:SendCommand` on `AWS-RunShellScript` + `AWSFIS-Run-CPU-Stress` documents + EC2 instance ARNs in the account/region, `ssm:ListCommands`/`CancelCommand`/`GetCommandInvocation`, `ec2:DescribeInstances` for tag resolution.
   - For `aws:rds:reboot-db-instances`: `rds:RebootDBInstance`, `rds:DescribeDBInstances` on the demo RDS ARN.
-- **`aws_fis_experiment_template.cpu_load_burst`** (`aws:ssm:send-command`): targets `aws:ec2:instance` by tag `Role=opensre-agent` (already present on the OpenSRE host from Plan 2); parameters `documentArn=AWS-RunShellScript`, `duration=PT4M`, `documentParameters` JSON-encoded with `commands=["python3 /opt/opensre/load_runner.py http://<eip>:8080 --duration 180 --ramp 30 --max-vus 200 --max-id 10000"]`. Stop condition: none.
+- **`aws_fis_experiment_template.cpu_load_burst`** — two parallel actions:
+  1. `send-load-burst` (`aws:ssm:send-command` → `AWS-RunShellScript`): targets OpenSRE host by tag `Role=opensre-agent`; runs `load_runner.py` with 5000 VUs / 5 s ramp / 180 s duration to fill SUT access logs with realistic traffic evidence.
+  2. `cpu-stress-sut` (`aws:ssm:send-command` → `AWSFIS-Run-CPU-Stress`): targets SUT EC2 host by ARN; runs `stress-ng` for 150 s to push EC2 CPUUtilization over the alarm threshold. (Load runner alone is I/O-bound and doesn't saturate CPU; stress-ng ensures the metric trips the alarm.)
 - **`aws_fis_experiment_template.rds_reboot`** (`aws:rds:reboot-db-instances`): targets the demo RDS instance by ARN; parameter `forceFailover=false`. Stop condition: none.
+- **`scripts/start_chaos.sh`** — wrapper around `aws fis start-experiment` accepting `cpu` or `rds`; resolves the experiment-template ID via `terraform output`; optional `--follow` tails `/aws/ssm/opensre-investigate`.
 
-**New scripts:**
-- `scripts/start_chaos.sh` — wrapper around `aws fis start-experiment` accepting `cpu` or `rds`; resolves the experiment-template ID via `terraform output`; optional `--follow` tails `/aws/ssm/opensre-investigate`.
+**Tuning applied during smoke testing (divergences from original plan):**
+- CPU alarm switched from `AWS/ECS` `CPUUtilization` (service-level) to `AWS/EC2` `CPUUtilization` (instance-level) because stress-ng runs outside the container cgroup and doesn't affect ECS metrics.
+- CPU alarm threshold lowered to 50%, period to 10 s, detailed monitoring enabled on SUT EC2.
+- DB metric filter expanded to include `ConnectionRefusedError` and `Connection refused` patterns (asyncpg emits these, not the psycopg2-style `OperationalError`/`could not connect to server`).
 
-**Verification (the MVP success criterion, spec §11):**
-1. `./scripts/start_chaos.sh cpu` → SSM dispatches `load_runner.py` to the OpenSRE host; SUT log group fills with weighted access-log entries (60/20/15/5 mix) with varied `203.0.113.X` source IPs; alarm `sut-cpu-saturation` transitions OK→ALARM in 60–120 s; Lambda log shows `ssm:SendCommand sent`; SSM log shows OpenSRE stdout; RCA in Telegram within ~3 min, citing **traffic-driven evidence** (path mix, source-IP variety, top endpoints).
-2. `./scripts/start_chaos.sh rds` (with light traffic to provoke the connection-pool failure) → alarm `sut-db-connection-errors` transitions in 90–180 s; same chain; RCA references the RDS reboot event.
-3. OpenClaw bot in the same group ingests both RCAs.
+**Verification (MVP success criterion, spec §11) — both passed 2026-05-10:**
+1. `./scripts/start_chaos.sh cpu` → stress-ng pushes SUT host CPU to ~50 %; load_runner fills SUT log group with weighted access entries (varied `203.0.113.X` IPs); alarm transitions OK→ALARM in ~3.5 min; Lambda fires (`ssm:SendCommand sent`); OpenSRE investigates for 52 s; RCA in Telegram citing traffic-driven evidence (path mix, source-IP variety). `is_noise: false`.
+2. `./scripts/start_chaos.sh rds` + light curl traffic → `ConnectionRefusedError` 500s in SUT logs; alarm transitions in ~70 s; same Lambda→SSM→OpenSRE chain; RCA in Telegram citing `ConnectionRefusedError: [Errno 111]` and recommending DB status check + container restart. `is_noise: false`.
 
-**Time budget:** alarm-to-Telegram p95 ≈ 3 min (spec §5). Anthropic API latency dominates; Telegram POST adds <1 s.
+**Time budget:** alarm-to-Telegram p95 ≈ 3–4 min (spec §5). Anthropic API latency dominates; Telegram POST adds <1 s.
 
-**Cost:** ~$0.40 per CPU experiment (4 min × $0.10/action-min — FIS bills the action's `duration` parameter, not actual run time); RDS reboot is near-free. A few demo runs/month is well under $1. To reduce, lower `duration` to `PT3M` once the load runner reliably completes inside that window.
+**Cost:** ~$0.40 per CPU experiment (4 min × $0.10/action-min — FIS bills the action's `duration` parameter, not actual run time); RDS reboot is near-free. A few demo runs/month is well under $1.
 
 ---
 
