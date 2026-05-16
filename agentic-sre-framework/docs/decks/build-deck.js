@@ -174,7 +174,98 @@ function slide1() {
 }
 
 // --------------------------------------------------------------------------
-// Slide 2 — Where engineering time leaks today
+// Slide 2 — What our SRE & SysAdmin teams do today
+// --------------------------------------------------------------------------
+function slideOps(pageNum, total) {
+  const s = pres.addSlide();
+  s.background = { color: C.pageBg };
+  addPageChrome(s, { pageNum, total });
+  addSlideTitle(s, "What our SRE & SysAdmin teams do today", "Operations background");
+
+  const colY = 1.85, colH = 4.7;
+  const leftX = 0.6, leftW = 6.2;
+  const rightX = 7.1, rightW = 5.6;
+
+  // LEFT: SRE
+  addCard(s, { x: leftX, y: colY, w: leftW, h: colH });
+  s.addShape(pres.shapes.RECTANGLE, {
+    x: leftX, y: colY, w: leftW, h: 0.7,
+    fill: { color: C.navy }, line: { color: C.navy, width: 0 },
+  });
+  s.addText("SRE — Site Reliability Engineering", {
+    x: leftX + 0.3, y: colY, w: leftW - 0.6, h: 0.7,
+    fontFace: F.header, fontSize: 16, bold: true,
+    color: C.white, align: "left", valign: "middle", margin: 0,
+  });
+  s.addText("Keeps production reliable. Investigates and recovers when it isn't.", {
+    x: leftX + 0.35, y: colY + 0.85, w: leftW - 0.7, h: 0.5,
+    fontFace: F.body, fontSize: 13, italic: true,
+    color: C.textMid, align: "left", valign: "top", margin: 0,
+  });
+  const sreItems = [
+    "Watches alerts; triages incoming incident reports",
+    "Investigates outages — finds root cause and mitigates",
+    "Writes postmortems and tracks the action items",
+    "Builds dashboards and alerts that catch the next outage early",
+  ];
+  sreItems.forEach((item, i) => {
+    const y = colY + 1.55 + i * 0.65;
+    s.addShape(pres.shapes.OVAL, {
+      x: leftX + 0.45, y: y + 0.18, w: 0.14, h: 0.14,
+      fill: { color: C.amber }, line: { color: C.amber, width: 0 },
+    });
+    s.addText(item, {
+      x: leftX + 0.72, y: y, w: leftW - 0.95, h: 0.55,
+      fontFace: F.body, fontSize: 12.5, color: C.textDark,
+      align: "left", valign: "middle", margin: 0,
+    });
+  });
+
+  // RIGHT: SysAdmin
+  addCard(s, { x: rightX, y: colY, w: rightW, h: colH });
+  s.addShape(pres.shapes.RECTANGLE, {
+    x: rightX, y: colY, w: rightW, h: 0.7,
+    fill: { color: C.amber }, line: { color: C.amber, width: 0 },
+  });
+  s.addText("SysAdmin — Systems Administration", {
+    x: rightX + 0.3, y: colY, w: rightW - 0.6, h: 0.7,
+    fontFace: F.header, fontSize: 16, bold: true,
+    color: C.navyDeep, align: "left", valign: "middle", margin: 0,
+  });
+  s.addText("Makes day-to-day changes to systems safely on behalf of other teams.", {
+    x: rightX + 0.35, y: colY + 0.85, w: rightW - 0.7, h: 0.5,
+    fontFace: F.body, fontSize: 13, italic: true,
+    color: C.textMid, align: "left", valign: "top", margin: 0,
+  });
+  const sysItems = [
+    "Handles requests — databases, access, network, infrastructure",
+    "Authors and executes the scripts that perform each change",
+    "Patches security vulnerabilities; keeps systems hardened",
+    "Collects evidence so compliance audits don't become a scramble",
+  ];
+  sysItems.forEach((item, i) => {
+    const y = colY + 1.55 + i * 0.65;
+    s.addShape(pres.shapes.OVAL, {
+      x: rightX + 0.45, y: y + 0.18, w: 0.14, h: 0.14,
+      fill: { color: C.navy }, line: { color: C.navy, width: 0 },
+    });
+    s.addText(item, {
+      x: rightX + 0.72, y: y, w: rightW - 0.95, h: 0.55,
+      fontFace: F.body, fontSize: 12.5, color: C.textDark,
+      align: "left", valign: "middle", margin: 0,
+    });
+  });
+
+  // Bottom caption
+  s.addText("High-volume, detail-heavy work — a natural magnet for repetitive toil that compounds over time.", {
+    x: 0.6, y: 6.7, w: 12.1, h: 0.35,
+    fontFace: F.body, fontSize: 12, italic: true,
+    color: C.textMuted, align: "center", valign: "middle", margin: 0,
+  });
+}
+
+// --------------------------------------------------------------------------
+// Slide 3 — Where engineering time leaks today
 // --------------------------------------------------------------------------
 function slide2(pageNum, total) {
   const s = pres.addSlide();
@@ -187,7 +278,7 @@ function slide2(pageNum, total) {
     {
       n: "1",
       title: "Issues surface via ad-hoc chat",
-      body: "Most incidents reach us as free-form Mattermost messages. Engineers must read every channel and decide what's real.",
+      body: "Most incidents reach us as free-form chat messages. Engineers must read every channel and decide what's real.",
     },
     {
       n: "2",
@@ -367,7 +458,7 @@ function slide4(pageNum, total) {
 
   // Flow row (5 boxes, manual labour) — muted style
   const steps = [
-    { title: "Chat report",        body: "Free-form Mattermost message" },
+    { title: "Chat report",        body: "Free-form chat message" },
     { title: "Engineer reads",     body: "Asks clarifying Qs by hand" },
     { title: "Diagnosis",          body: "Hunts logs / metrics / traces" },
     { title: "Hypothesis & fix",   body: "Writes ad-hoc commands" },
@@ -630,121 +721,6 @@ function slide6(pageNum, total) {
 }
 
 // --------------------------------------------------------------------------
-// Slide 7 — Humans stay in command
-// --------------------------------------------------------------------------
-function slide7(pageNum, total) {
-  const s = pres.addSlide();
-  s.background = { color: C.pageBg };
-  addPageChrome(s, { pageNum, total });
-  addSlideTitle(s, "Humans approve every state change", "Governance");
-
-  // Left side: mock HITL approval card
-  const mockX = 0.6, mockY = 1.85, mockW = 6.2, mockH = 4.6;
-  addCard(s, { x: mockX, y: mockY, w: mockW, h: mockH });
-  // Mock header strip
-  slide7Header(s, mockX, mockY, mockW);
-  // Mock content
-  s.addText("Proposed mitigation — restart api-svc pod in prod-east", {
-    x: mockX + 0.3, y: mockY + 0.95, w: mockW - 0.6, h: 0.4,
-    fontFace: F.header, fontSize: 15, bold: true,
-    color: C.textDark, align: "left", valign: "middle", margin: 0,
-  });
-  s.addText("Hypothesis: memory leak after deploy at 09:12 UTC.  Mitigation:\nrolling-restart api-svc-* in prod-east.  Rollback: redeploy prior image.", {
-    x: mockX + 0.3, y: mockY + 1.4, w: mockW - 0.6, h: 0.95,
-    fontFace: F.body, fontSize: 11, color: C.textMid,
-    align: "left", valign: "top", margin: 0,
-  });
-  // Confidence + affected
-  s.addText("Confidence: 0.78  ·  Affected: api-svc (prod-east)  ·  Blast radius: low", {
-    x: mockX + 0.3, y: mockY + 2.5, w: mockW - 0.6, h: 0.35,
-    fontFace: F.body, fontSize: 10, italic: true,
-    color: C.textMuted, align: "left", valign: "middle", margin: 0,
-  });
-  // Buttons
-  const btnY = mockY + 3.3, btnH = 0.55, btnGap = 0.2;
-  const btnW = (mockW - 0.6 - 2 * btnGap) / 3;
-  const buttons = [
-    { label: "Approve",          color: C.good,    textColor: C.white },
-    { label: "Approve w/ edits", color: C.navy,    textColor: C.white },
-    { label: "Reject",           color: C.cardBg,  textColor: C.warn, border: C.warn },
-  ];
-  buttons.forEach((b, i) => {
-    const x = mockX + 0.3 + i * (btnW + btnGap);
-    s.addShape(pres.shapes.ROUNDED_RECTANGLE, {
-      x, y: btnY, w: btnW, h: btnH,
-      fill: { color: b.color },
-      line: { color: b.border || b.color, width: b.border ? 1.5 : 0 },
-      rectRadius: 0.06,
-    });
-    s.addText(b.label, {
-      x, y: btnY, w: btnW, h: btnH,
-      fontFace: F.body, fontSize: 12, bold: true,
-      color: b.textColor, align: "center", valign: "middle", margin: 0,
-    });
-  });
-  // Footer line
-  s.addText("Approval signed against on-call rotation  ·  recorded in append-only audit log", {
-    x: mockX + 0.3, y: mockY + mockH - 0.5, w: mockW - 0.6, h: 0.35,
-    fontFace: F.body, fontSize: 10, italic: true,
-    color: C.textMuted, align: "left", valign: "middle", margin: 0,
-  });
-
-  // Right side: three governance pillars
-  const rightX = 7.2, rightW = 5.5;
-  const pillars = [
-    {
-      title: "Default-deny permissions",
-      body: "Every agent's tools are declared in git. Operators see the full list and can revoke any tool at runtime — no redeploy.",
-    },
-    {
-      title: "Append-only audit log",
-      body: "Every signal, agent call, tool call, and approval click is recorded with hashes. WORM storage, periodic verification.",
-    },
-    {
-      title: "Hard budget caps",
-      body: "Per-case and per-agent ceilings on tokens, tool calls, wall-clock. Tripping a cap pages on-call with the draft so far.",
-    },
-  ];
-  const pY0 = 1.95, pH = 1.45, pGap = 0.15;
-  pillars.forEach((p, i) => {
-    const y = pY0 + i * (pH + pGap);
-    addCard(s, { x: rightX, y, w: rightW, h: pH });
-    // Left accent strip
-    s.addShape(pres.shapes.RECTANGLE, {
-      x: rightX, y: y, w: 0.1, h: pH,
-      fill: { color: C.amber }, line: { color: C.amber, width: 0 },
-    });
-    s.addText(p.title, {
-      x: rightX + 0.3, y: y + 0.15, w: rightW - 0.5, h: 0.4,
-      fontFace: F.header, fontSize: 15, bold: true,
-      color: C.navy, align: "left", valign: "middle", margin: 0,
-    });
-    s.addText(p.body, {
-      x: rightX + 0.3, y: y + 0.55, w: rightW - 0.5, h: pH - 0.6,
-      fontFace: F.body, fontSize: 12, color: C.textMid,
-      align: "left", valign: "top", margin: 0,
-    });
-  });
-}
-
-function slide7Header(s, x, y, w) {
-  s.addShape(pres.shapes.RECTANGLE, {
-    x, y, w, h: 0.7,
-    fill: { color: C.navy }, line: { color: C.navy, width: 0 },
-  });
-  s.addText("CASE  ·  #INC-2026-0517-014", {
-    x: x + 0.3, y: y, w: w - 0.6, h: 0.7,
-    fontFace: F.body, fontSize: 11, bold: true,
-    color: C.iceblue, charSpacing: 3, align: "left", valign: "middle", margin: 0,
-  });
-  s.addText("AWAITING APPROVAL", {
-    x: x + w - 2.4, y: y, w: 2.1, h: 0.7,
-    fontFace: F.body, fontSize: 10, bold: true,
-    color: C.amber, align: "right", valign: "middle", margin: 0,
-  });
-}
-
-// --------------------------------------------------------------------------
 // Slide 8 — The value loop
 // --------------------------------------------------------------------------
 function slide8(pageNum, total) {
@@ -826,249 +802,64 @@ function slide8(pageNum, total) {
 }
 
 // --------------------------------------------------------------------------
-// Slide 9 — Phased rollout
-// --------------------------------------------------------------------------
-function slide9(pageNum, total) {
-  const s = pres.addSlide();
-  s.background = { color: C.pageBg };
-  addPageChrome(s, { pageNum, total });
-  addSlideTitle(s, "Five gated phases — each delivers value on its own", "Rollout");
-
-  const phases = [
-    { p: "0", title: "Foundations",            body: "Stand up supervisor, governance, audit log.  Apply GitLab label dictionary.  No agents enabled yet." },
-    { p: "1", title: "Triage + Investigation", body: "Duty Engineer + SRE Investigator.  Read-only output.  First structured chat-intake cases." },
-    { p: "2", title: "Drafting",               body: "SysAdmin Drafter + Postmortem Scribe.  First HITL gates fire.  First draft MRs and postmortems." },
-    { p: "3", title: "Security + Compliance",  body: "Security Triage + Compliance Evidence.  Continuous evidence packets, exploitability assessments." },
-    { p: "4", title: "Senior tier + Loop",     body: "Principal SRE + Remediation Engineer + Observability Engineer.  The value loop closes." },
-  ];
-
-  // Each phase as a vertical card
-  const startX = 0.6, cardW = 2.36, cardH = 3.4, gap = 0.135;
-  phases.forEach((ph, i) => {
-    const x = startX + i * (cardW + gap);
-    const y = 2.4;
-    addCard(s, { x, y, w: cardW, h: cardH });
-    // Phase header strip
-    s.addShape(pres.shapes.RECTANGLE, {
-      x, y, w: cardW, h: 0.95,
-      fill: { color: C.navy }, line: { color: C.navy, width: 0 },
-    });
-    s.addText(`Phase ${ph.p}`, {
-      x: x + 0.2, y: y + 0.1, w: cardW - 0.4, h: 0.4,
-      fontFace: F.body, fontSize: 11, bold: true,
-      color: C.amber, charSpacing: 3, align: "left", valign: "middle", margin: 0,
-    });
-    s.addText(ph.title, {
-      x: x + 0.2, y: y + 0.45, w: cardW - 0.4, h: 0.5,
-      fontFace: F.header, fontSize: 15, bold: true,
-      color: C.white, align: "left", valign: "middle", margin: 0,
-    });
-    // Body
-    s.addText(ph.body, {
-      x: x + 0.2, y: y + 1.15, w: cardW - 0.4, h: cardH - 1.4,
-      fontFace: F.body, fontSize: 11.5, color: C.textMid,
-      align: "left", valign: "top", margin: 0,
-    });
-
-    // Gate-arrow between phases
-    if (i < phases.length - 1) {
-      const ax = x + cardW;
-      addArrow(s, ax + 0.005, y + 0.475, ax + gap - 0.005, C.amber, 1.5);
-    }
-  });
-
-  // Bottom strip: gated criteria
-  addCard(s, { x: 0.6, y: 6.35, w: 12.1, h: 0.7, fill: C.iceblue, border: C.iceblue, shadow: false });
-  s.addText("Each phase is gated on the previous one's exit criteria — agent edit-rate, budget compliance, no out-of-scope tool calls.  No big bang.", {
-    x: 0.85, y: 6.35, w: 11.6, h: 0.7,
-    fontFace: F.body, fontSize: 12, italic: true,
-    color: C.navy, align: "center", valign: "middle", margin: 0,
-  });
-}
-
-// --------------------------------------------------------------------------
-// Slide 10 — Honest limits
+// Slide 9 — Honest limits
 // --------------------------------------------------------------------------
 function slide10(pageNum, total) {
   const s = pres.addSlide();
   s.background = { color: C.pageBg };
   addPageChrome(s, { pageNum, total });
-  addSlideTitle(s, "What this framework won't do", "Honest limits");
+  addSlideTitle(s, "Honest limits to plan around", "Set expectations");
 
-  // Two columns: out of scope, key risks
-  const colY = 1.85, colH = 5.0;
-  const leftX = 0.6, leftW = 6.2;
-  const rightX = 7.1, rightW = 5.6;
-
-  // LEFT column — out of scope
-  addCard(s, { x: leftX, y: colY, w: leftW, h: colH });
-  s.addShape(pres.shapes.RECTANGLE, {
-    x: leftX, y: colY, w: leftW, h: 0.6,
-    fill: { color: C.navy }, line: { color: C.navy, width: 0 },
-  });
-  s.addText("Deliberately out of scope (v1)", {
-    x: leftX + 0.3, y: colY, w: leftW - 0.6, h: 0.6,
-    fontFace: F.header, fontSize: 15, bold: true,
-    color: C.white, align: "left", valign: "middle", margin: 0,
-  });
-  const outOfScope = [
-    "Autonomous state changes — humans approve everything",
-    "Replacing the change-manager / CAB authority",
-    "Replacing Grafana, GitLab, or Ansible",
-    "Customer-facing communication",
-    "Capacity forecasting (deterministic tooling wins)",
-    "Drift detection (GitOps already covers it)",
-    "Cost / FinOps optimisation",
+  const limits = [
+    {
+      h: "On-prem quality gap",
+      body: "Open-weight models on-prem are visibly weaker than online frontier. Plan for higher human edit rate in air-gapped deployments.",
+    },
+    {
+      h: "Hallucinations are real",
+      body: "Agents can produce confident but wrong drafts. Every output is reviewed by a human before action; the \"AI draft — verify\" tag persists for the first 90 days.",
+    },
+    {
+      h: "Not free to run",
+      body: "Inference and GPU costs are real. Hard budget caps keep them bounded, but compute spend is a real line item in the operating plan.",
+    },
+    {
+      h: "Preconditions required",
+      body: "Consistent issue labels, service catalogue, on-call API, and playbook inventory must be in place before the framework adds value.",
+    },
   ];
-  outOfScope.forEach((item, i) => {
-    const y = colY + 0.85 + i * 0.55;
+
+  const startY = 1.95, rowH = 1.1, gap = 0.18;
+  const x = 0.6, w = 12.1;
+  limits.forEach((l, i) => {
+    const y = startY + i * (rowH + gap);
+    addCard(s, { x, y, w, h: rowH });
+    // Left amber accent strip
+    s.addShape(pres.shapes.RECTANGLE, {
+      x, y, w: 0.12, h: rowH,
+      fill: { color: C.amber }, line: { color: C.amber, width: 0 },
+    });
+    // Number badge
     s.addShape(pres.shapes.OVAL, {
-      x: leftX + 0.35, y: y + 0.12, w: 0.13, h: 0.13,
+      x: x + 0.45, y: y + (rowH - 0.6) / 2, w: 0.6, h: 0.6,
       fill: { color: C.navy }, line: { color: C.navy, width: 0 },
     });
-    s.addText(item, {
-      x: leftX + 0.6, y: y, w: leftW - 0.8, h: 0.4,
-      fontFace: F.body, fontSize: 12, color: C.textDark,
-      align: "left", valign: "middle", margin: 0,
+    s.addText(String(i + 1), {
+      x: x + 0.45, y: y + (rowH - 0.6) / 2, w: 0.6, h: 0.6,
+      fontFace: F.header, fontSize: 20, bold: true,
+      color: C.white, align: "center", valign: "middle", margin: 0,
     });
-  });
-
-  // RIGHT column — quality caveat + key risks
-  addCard(s, { x: rightX, y: colY, w: rightW, h: colH });
-  s.addShape(pres.shapes.RECTANGLE, {
-    x: rightX, y: colY, w: rightW, h: 0.6,
-    fill: { color: C.amber }, line: { color: C.amber, width: 0 },
-  });
-  s.addText("Known limits to call out", {
-    x: rightX + 0.3, y: colY, w: rightW - 0.6, h: 0.6,
-    fontFace: F.header, fontSize: 15, bold: true,
-    color: C.navyDeep, align: "left", valign: "middle", margin: 0,
-  });
-  const limits = [
-    { h: "On-prem quality gap",
-      body: "Open-weight frontier models are visibly weaker than online. Plan for higher human edit rate in air-gapped deployments." },
-    { h: "Hallucination is real",
-      body: "Every draft is HITL-reviewed; \"AI draft — verify\" tag persists for first 90 days." },
-    { h: "Not free",
-      body: "GPU and inference cost; budget caps keep it bounded but it is real." },
-    { h: "Preconditions required",
-      body: "GitLab labels, service catalogue, on-call API, playbook inventory must be in place first." },
-  ];
-  let lY = colY + 0.85;
-  limits.forEach((l) => {
-    // small amber dot to mirror the left column's bullet style
-    s.addShape(pres.shapes.OVAL, {
-      x: rightX + 0.35, y: lY + 0.12, w: 0.13, h: 0.13,
-      fill: { color: C.amber }, line: { color: C.amber, width: 0 },
-    });
+    // Heading
     s.addText(l.h, {
-      x: rightX + 0.6, y: lY, w: rightW - 0.95, h: 0.35,
-      fontFace: F.header, fontSize: 13, bold: true,
+      x: x + 1.25, y: y + 0.18, w: w - 1.45, h: 0.4,
+      fontFace: F.header, fontSize: 16, bold: true,
       color: C.navy, align: "left", valign: "middle", margin: 0,
     });
+    // Body
     s.addText(l.body, {
-      x: rightX + 0.6, y: lY + 0.35, w: rightW - 0.95, h: 0.7,
-      fontFace: F.body, fontSize: 11.5, color: C.textMid,
+      x: x + 1.25, y: y + 0.58, w: w - 1.45, h: 0.5,
+      fontFace: F.body, fontSize: 12.5, color: C.textMid,
       align: "left", valign: "top", margin: 0,
-    });
-    lY += 1.0;
-  });
-}
-
-// --------------------------------------------------------------------------
-// Slide 11 — The ask
-// --------------------------------------------------------------------------
-function slide11(pageNum, total) {
-  const s = pres.addSlide();
-  s.background = { color: C.navy };
-  // Slim amber accent line at the very top, not a thick band
-  s.addShape(pres.shapes.RECTANGLE, {
-    x: 0, y: 0, w: 13.3, h: 0.08,
-    fill: { color: C.amber }, line: { color: C.amber, width: 0 },
-  });
-  // Footer brand + page indicator (light text directly on the dark background)
-  s.addText("Agentic SRE Framework  ·  Management Brief", {
-    x: 0.6, y: 7.15, w: 8, h: 0.3,
-    fontFace: F.body, fontSize: 9, color: C.iceblue,
-    align: "left", valign: "middle", margin: 0,
-  });
-  s.addText(`${pageNum} / ${total}`, {
-    x: 12.0, y: 7.15, w: 1.0, h: 0.3,
-    fontFace: F.body, fontSize: 9, color: C.iceblue,
-    align: "right", valign: "middle", margin: 0,
-  });
-
-  // Eyebrow
-  s.addText("THE ASK", {
-    x: 0.8, y: 1.0, w: 12, h: 0.4,
-    fontFace: F.body, fontSize: 13, bold: true,
-    color: C.amber, charSpacing: 6, margin: 0,
-  });
-  // Title
-  s.addText("Approve Phase 0 — Foundations", {
-    x: 0.8, y: 1.5, w: 12, h: 1.0,
-    fontFace: F.header, fontSize: 40, bold: true,
-    color: C.white, align: "left", valign: "top", margin: 0,
-  });
-
-  // Sub
-  s.addText("Stand up the orchestration plane, audit log, governance dashboard, and the GitLab label dictionary.  No agents enabled yet — only the foundations that make the rest gated and safe.", {
-    x: 0.8, y: 2.7, w: 11.0, h: 1.2,
-    fontFace: F.body, fontSize: 17, italic: true,
-    color: C.iceblue, align: "left", valign: "top", margin: 0,
-  });
-
-  // Two columns at the bottom: What we need, Who owns it
-  const yBase = 4.4, ch = 2.5;
-  // Left
-  addCard(s, { x: 0.8, y: yBase, w: 5.9, h: ch, fill: "2A3F73", border: C.amber, shadow: false });
-  s.addText("What we need from you", {
-    x: 1.05, y: yBase + 0.2, w: 5.4, h: 0.4,
-    fontFace: F.body, fontSize: 11, bold: true,
-    color: C.amber, charSpacing: 3, align: "left", valign: "middle", margin: 0,
-  });
-  const asks = [
-    "Approval to proceed with Phase 0",
-    "SRE team headcount for the framework operator role",
-    "Security sign-off on default-deny permission model",
-    "Budget envelope for inference cost in pilot quarter",
-  ];
-  asks.forEach((a, i) => {
-    const y = yBase + 0.7 + i * 0.42;
-    s.addShape(pres.shapes.OVAL, {
-      x: 1.1, y: y + 0.12, w: 0.13, h: 0.13,
-      fill: { color: C.amber }, line: { color: C.amber, width: 0 },
-    });
-    s.addText(a, {
-      x: 1.35, y: y, w: 5.2, h: 0.4,
-      fontFace: F.body, fontSize: 13, color: C.white,
-      align: "left", valign: "middle", margin: 0,
-    });
-  });
-
-  // Right — who owns + how we know we're winning
-  addCard(s, { x: 7.0, y: yBase, w: 5.8, h: ch, fill: "2A3F73", border: C.amber, shadow: false });
-  s.addText("How we know we're winning", {
-    x: 7.25, y: yBase + 0.2, w: 5.3, h: 0.4,
-    fontFace: F.body, fontSize: 11, bold: true,
-    color: C.amber, charSpacing: 3, align: "left", valign: "middle", margin: 0,
-  });
-  const measures = [
-    "Every chat report becomes a GitLab case within minutes",
-    "Every service ticket arrives with a draft playbook",
-    "Every closed postmortem produces a merged dashboard",
-    "Zero unauthorised state changes",
-  ];
-  measures.forEach((m, i) => {
-    const y = yBase + 0.7 + i * 0.42;
-    s.addShape(pres.shapes.OVAL, {
-      x: 7.3, y: y + 0.12, w: 0.13, h: 0.13,
-      fill: { color: C.amber }, line: { color: C.amber, width: 0 },
-    });
-    s.addText(m, {
-      x: 7.55, y: y, w: 5.1, h: 0.4,
-      fontFace: F.body, fontSize: 13, color: C.white,
-      align: "left", valign: "middle", margin: 0,
     });
   });
 }
@@ -1076,18 +867,16 @@ function slide11(pageNum, total) {
 // --------------------------------------------------------------------------
 // Build deck
 // --------------------------------------------------------------------------
-const TOTAL = 11;
+const TOTAL = 9;
 slide1();
-slide2(2, TOTAL);
-slide3(3, TOTAL);
-slide4(4, TOTAL);
-slide5(5, TOTAL);
-slide6(6, TOTAL);
-slide7(7, TOTAL);
+slideOps(2, TOTAL);
+slide2(3, TOTAL);
+slide3(4, TOTAL);
+slide4(5, TOTAL);
+slide5(6, TOTAL);
+slide6(7, TOTAL);
 slide8(8, TOTAL);
-slide9(9, TOTAL);
-slide10(10, TOTAL);
-slide11(11, TOTAL);
+slide10(9, TOTAL);
 
 pres.writeFile({ fileName: "/Users/alexgoh/Code/agentic-ons/agentic-sre-framework/docs/decks/management-brief.pptx" })
   .then(fn => console.log("Wrote " + fn));
