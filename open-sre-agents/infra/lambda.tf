@@ -27,6 +27,8 @@ resource "aws_iam_role_policy_attachment" "ingest_alarm_basic" {
 data "aws_caller_identity" "current" {}
 
 data "aws_iam_policy_document" "ingest_alarm_ssm" {
+  count = var.opensre_host_enabled ? 1 : 0
+
   statement {
     sid     = "SsmSendCommandToOpensreHost"
     effect  = "Allow"
@@ -39,12 +41,14 @@ data "aws_iam_policy_document" "ingest_alarm_ssm" {
 }
 
 resource "aws_iam_role_policy" "ingest_alarm_ssm" {
+  count  = var.opensre_host_enabled ? 1 : 0
   name   = "${var.project}-ingest-alarm-ssm"
   role   = aws_iam_role.ingest_alarm.id
-  policy = data.aws_iam_policy_document.ingest_alarm_ssm.json
+  policy = data.aws_iam_policy_document.ingest_alarm_ssm[0].json
 }
 
 resource "aws_lambda_function" "ingest_alarm" {
+  count            = var.opensre_host_enabled ? 1 : 0
   function_name    = "${var.project}-ingest-alarm"
   role             = aws_iam_role.ingest_alarm.arn
   runtime          = "python3.12"
@@ -74,17 +78,19 @@ resource "aws_lambda_function" "ingest_alarm" {
 }
 
 resource "aws_lambda_permission" "allow_sns" {
+  count         = var.opensre_host_enabled ? 1 : 0
   statement_id  = "AllowSNSInvoke"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.ingest_alarm.function_name
+  function_name = aws_lambda_function.ingest_alarm[0].function_name
   principal     = "sns.amazonaws.com"
   source_arn    = aws_sns_topic.opensre_alarms.arn
 }
 
 resource "aws_sns_topic_subscription" "lambda" {
+  count     = var.opensre_host_enabled ? 1 : 0
   topic_arn = aws_sns_topic.opensre_alarms.arn
   protocol  = "lambda"
-  endpoint  = aws_lambda_function.ingest_alarm.arn
+  endpoint  = aws_lambda_function.ingest_alarm[0].arn
 
   depends_on = [aws_lambda_permission.allow_sns]
 }

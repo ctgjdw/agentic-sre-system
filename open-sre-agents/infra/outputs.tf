@@ -80,7 +80,7 @@ output "alarm_db_errors_name" {
 
 output "ingest_alarm_function_name" {
   description = "Lambda function name. Use for `aws logs tail /aws/lambda/<this>` and manual invokes."
-  value       = aws_lambda_function.ingest_alarm.function_name
+  value       = var.opensre_host_enabled ? aws_lambda_function.ingest_alarm[0].function_name : null
 }
 
 output "fis_cpu_load_burst_template_id" {
