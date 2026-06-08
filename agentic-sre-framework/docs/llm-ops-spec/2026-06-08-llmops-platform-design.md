@@ -53,7 +53,7 @@ not build agents itself. It provides the lifecycle around tenant-built agents:
 |---|---|
 | Runaway LLM cost | Per-tenant + per-agent budget caps; quota enforcement at the LLM gateway (§6) |
 | Harmful or non-compliant agent output | Platform-mandatory safety + PII guardrails tenants cannot weaken (§6) |
-| Tenant data leakage across tenants | Project-level isolation; stronger isolation tier for external customers (§5) |
+| Tenant data leakage across tenants | Group-level isolation (group = tenant = Langfuse org); stronger isolation tier for external customers (§5) |
 | Silent quality drift | Eval regression gates on every agent version change (§4b) |
 | On-prem safety classifiers weaker than cloud | Stricter default thresholds on-prem; stated plainly (§6) |
 | No defensible record for audit/dispute | WORM audit log, append-only, separate write credentials (§5b) |
@@ -190,7 +190,7 @@ lifecycle, and experiment management.
 | Policy / safety | Bedrock Guardrails + AgentCore Cedar Policy | Custom Policy Engine sidecar |
 | Prompt management | Langfuse Prompt Management | Langfuse Prompt Management |
 | Cost tracking | CloudWatch metrics + Langfuse per-trace cost | Langfuse per-trace cost |
-| Multi-tenant RBAC | Langfuse Org→Project→User | Langfuse Org→Project→User |
+| Multi-tenant RBAC | Supergroup → Group(=Langfuse org) → Project/User | Supergroup → Group(=Langfuse org) → Project/User |
 
 > **AWS-endorsed pattern.** AWS and Langfuse have published a joint reference
 > for AgentCore→Langfuse OTEL export. Disable ADOT
@@ -204,31 +204,82 @@ lifecycle, and experiment management.
 
 > Audience: engineering.
 
-### 5.1 Tenant isolation tiers
+### 5.1 Tenant hierarchy — two grouping levels
+
+The platform uses a **three-level hierarchy**: a **supergroup** contains
+**groups**; a **group** contains **users** and **projects**. The **group is the
+tenant boundary** — the unit of isolation, billing, and policy.
+
+The motivating case: one external customer (e.g. an organization) has several
+departments. Each department must be its own isolated tenant, but the
+organization groups them together. The supergroup is that organizing parent.
+
+```
+Supergroup  (e.g. "Organization" — name TBC)   ← always present; groups tenants
+  └── Group  (e.g. "Department")               ← THE TENANT BOUNDARY
+        ├── Users          (RBAC: Owner / Admin / Developer / Viewer)
+        ├── Projects       (one per agentic system / app)
+        │     ├── Agents       (the built agents)
+        │     ├── Prompts      (versioned, Langfuse-managed)
+        │     ├── Eval datasets
+        │     └── Traces       (scoped to project)
+        ├── Policy namespace   (tenant-owned + platform-mandatory)
+        └── Billing account    (usage metering)
+```
+
+**Hierarchy rules:**
+
+- **The supergroup is always present.** Every group belongs to exactly one
+  supergroup, even a single-department customer (the supergroup then has one
+  group). This keeps one invariant instead of two code paths.
+- **Depth is capped at two grouping levels.** No super-supergroups.
+- **The group is the isolation boundary.** Users, projects, traces, prompts,
+  policies, and billing all scope to the group. Two groups in the same
+  supergroup are as isolated from each other as two unrelated customers.
+
+**Supergroup scope (v1): a logical grouping only.** In v1 the supergroup has no
+admins and no cross-group visibility — it only associates groups for organizing
+and reporting. **Forward path (not v1):** supergroup-level admins with
+read-only rollup of usage/billing across member groups, and optionally group
+lifecycle management. The data model reserves this — the supergroup is a
+first-class entity from day one — but no supergroup roles ship in v1.
+
+### 5.2 Mapping to Langfuse
+
+Langfuse's native hierarchy is only **two levels** (Organization → Project, with
+users as organization members). The mapping aligns the tenant boundary with
+Langfuse's strongest isolation boundary:
+
+| Platform concept | Langfuse concept | Notes |
+|---|---|---|
+| Supergroup | *(none)* | Lives in the platform Tenant Management layer, **above** Langfuse. Langfuse never sees supergroups. |
+| **Group (tenant)** | **Organization** | Langfuse's hard isolation boundary lands exactly on the tenant boundary. |
+| User | Organization member | Langfuse RBAC: Owner / Admin / Member / Viewer at org and project level. |
+| Project | Project | One per agentic system. |
+
+> **Naming caution.** Langfuse calls its top level "Organization". This spec
+> maps a **Group** to a Langfuse Organization. So if the supergroup is
+> eventually named "Organization", that label collides with Langfuse's internal
+> term. Keep the platform-facing terms (Supergroup / Group) distinct from the
+> Langfuse-internal term in code and docs to avoid confusion.
+
+The supergroup is tracked entirely by the Tenant Management component (its own
+table keyed to a set of Langfuse organization IDs). This is what makes the
+future rollup path clean: aggregating usage across a supergroup is a query over
+its member Langfuse organizations, requiring no Langfuse schema change.
+
+### 5.3 Isolation tiers
 
 | Tenant type | Isolation | Rationale |
 |---|---|---|
-| Internal teams | Logical — separate Langfuse projects, separate policy namespaces, shared infra | Lower risk; cost efficiency |
-| External customers | Stronger — dedicated Langfuse project, dedicated policy namespace, optionally dedicated runtime workers | Data residency, contractual isolation |
+| Internal teams | Logical — group = Langfuse org, separate policy namespaces, shared infra | Lower risk; cost efficiency |
+| External customers | Stronger — group = dedicated Langfuse org, dedicated policy namespace, optionally dedicated runtime workers | Data residency, contractual isolation |
 
-Tenant hierarchy maps to Langfuse **Org → Project → User**:
-
-```
-Organization (tenant boundary)
-  ├── Projects (one per agentic system / app)
-  │     ├── Agents       (the built agents)
-  │     ├── Prompts      (versioned, Langfuse-managed)
-  │     ├── Eval datasets
-  │     └── Traces       (scoped to project)
-  ├── Members            (RBAC: Owner / Admin / Developer / Viewer)
-  ├── Policy namespace   (tenant-owned + platform-mandatory)
-  └── Billing account    (usage metering)
-```
-
-**Billing / metering.** Per-trace cost from Langfuse is aggregated per tenant.
-Online, reconciled against CloudWatch metrics and AWS billing tags. On-prem,
-Langfuse cost data is the source of truth, with GPU-time allocation for
-self-hosted models.
+**Billing / metering.** Per-trace cost from Langfuse is aggregated per **group
+(tenant)**. Online, reconciled against CloudWatch metrics and AWS billing tags.
+On-prem, Langfuse cost data is the source of truth, with GPU-time allocation for
+self-hosted models. The future supergroup rollup sums group-level totals across
+the supergroup's member organizations.
 
 ### 5.2 Audit log
 
@@ -280,9 +331,20 @@ writes directly to the log except the append-only writer service.
 | Prompt injection | Bedrock Guardrails (prompt attack filter) | Custom classifier / rules |
 | Topic restrictions | Bedrock Guardrails (denied topics) | Custom topic classifier |
 | Tool-call authorization | AgentCore Policy (Cedar) | Custom engine — Cedar-compatible YAML |
-| Cost / quota | Custom service (CloudWatch + Langfuse cost) | Custom service (Langfuse cost) |
-| Model access control | IAM + LLM Gateway routing | LLM Gateway routing |
-| Rate limiting | API Gateway throttling + custom limiter | Custom per-tenant limiter |
+| Model access control | IAM + LiteLLM gateway routing (in front of Bedrock) | LiteLLM gateway routing (in front of vLLM) |
+| Cost / quota (gateway-enforced) | LiteLLM virtual-key budgets + rate limits | LiteLLM virtual-key budgets + rate limits |
+| Cost metering / billing | CloudWatch + Langfuse per-trace cost, reconciled to AWS billing | Langfuse per-trace cost (source of truth) |
+| Rate limiting | API Gateway throttling + LiteLLM per-key RPM/TPM | LiteLLM per-key RPM/TPM |
+
+**The LLM Gateway is LiteLLM (MIT) in both contexts.** AWS ships no standalone
+LLM-gateway service — Bedrock's Converse API unifies *model invocation* but not
+per-tenant virtual keys, budget caps, or fallback routing. AWS's own
+"Multi-Provider Generative AI Gateway" Guidance is itself built on LiteLLM. We
+adopt the same gateway in both contexts: online it fronts Bedrock, on-prem it
+fronts vLLM. It is a routing/quota/cost layer only — safety (guardrails, PII,
+prompt injection) stays in the Policy Engine rows above. Per-call cost flows to
+Langfuse via LiteLLM's native callback. Pin to a cosign-signed immutable image
+(§9.1).
 
 **Cedar is the one component that genuinely ports.** AgentCore uses Cedar (AWS's
 open-source policy language) for tool-call authorization. The same Cedar
@@ -390,6 +452,7 @@ adapter sets selected by config (Helm values).
 | Capability port | On-prem (OpenShift) | Online (AWS) |
 |---|---|---|
 | Agent runtime | Custom runtime (**TBD**) | Bedrock AgentCore |
+| LLM gateway | LiteLLM (self-hosted on OCP) → vLLM | LiteLLM (ECS/Fargate or EKS) → Bedrock |
 | LLM observability | Langfuse (self-hosted on OCP) | Langfuse (self-hosted on ECS/Fargate) |
 | Ops monitoring | Grafana LGTM | CloudWatch GenAI Observability |
 | Observability DB (OLAP) | ClickHouse on OCP | ClickHouse on EKS / ClickHouse Cloud |
@@ -412,12 +475,15 @@ adapter sets selected by config (Helm values).
 | 3 | Langfuse version pinning + fork-as-insurance policy given the ClickHouse acquisition |
 | 4 | GPU scheduling policy on-prem when eval (LLM-as-judge) workload competes with tenant agent execution |
 | 5 | External-customer data residency requirements — do any require fully dedicated infrastructure rather than logical isolation? |
+| 6 | Final name for the **supergroup** level ("Organization", "Tenant Group", etc.) — must not collide with Langfuse's internal "Organization" term (§5.2) |
+| 7 | LiteLLM gateway hardening: image-pinning + cosign signature-verification policy for air-gapped installs (a rolling tag once shipped a backdoor); mirrors the Langfuse version-pinning item (§9.1.3) |
 
 ### 9.2 Out of scope (v1)
 
 | Out of scope | Why |
 |---|---|
 | The visual builder's detailed UX | Its own design cycle; this spec defines the portable spec it must emit |
+| **Supergroup-level admins + cross-group billing rollup** | Data model reserves the supergroup as a first-class entity, but no supergroup roles or rollup views ship in v1 (§5.1). Planned forward path. |
 | Autonomous tenant-agent state changes without tenant-defined HITL | Tenants own their agents' autonomy within platform policy ceilings |
 | Replacing CloudWatch / Grafana | The platform integrates with them, does not replace them |
 | Cross-tenant shared agent marketplace | Future consideration; not v1 |
