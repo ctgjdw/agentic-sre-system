@@ -1,0 +1,638 @@
+<title>Agentic SRE Team - UI Wireframes v1</title>
+<style>
+  :root {
+    --paper: #f4f5f6;
+    --panel: #ffffff;
+    --ink: #21262b;
+    --ink-2: #5b646d;
+    --ink-3: #8a939c;
+    --line: #d4d9de;
+    --line-2: #e4e8eb;
+    --wf-fill: #eceff1;
+    --wf-fill-2: #f7f8f9;
+    --red: #c2453a;
+    --red-soft: rgba(194, 69, 58, .09);
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #16191d;
+      --panel: #1d2126;
+      --ink: #dde2e7;
+      --ink-2: #9aa4ad;
+      --ink-3: #6b747d;
+      --line: #3a4149;
+      --line-2: #2b3138;
+      --wf-fill: #262b31;
+      --wf-fill-2: #1a1e23;
+      --red: #e0685c;
+      --red-soft: rgba(224, 104, 92, .13);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #16191d; --panel: #1d2126; --ink: #dde2e7; --ink-2: #9aa4ad; --ink-3: #6b747d;
+    --line: #3a4149; --line-2: #2b3138; --wf-fill: #262b31; --wf-fill-2: #1a1e23;
+    --red: #e0685c; --red-soft: rgba(224, 104, 92, .13);
+  }
+  :root[data-theme="light"] {
+    --paper: #f4f5f6; --panel: #ffffff; --ink: #21262b; --ink-2: #5b646d; --ink-3: #8a939c;
+    --line: #d4d9de; --line-2: #e4e8eb; --wf-fill: #eceff1; --wf-fill-2: #f7f8f9;
+    --red: #c2453a; --red-soft: rgba(194, 69, 58, .09);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55;
+    margin: 0; padding: 0 24px 96px;
+  }
+  main { max-width: 1240px; margin: 0 auto; }
+
+  header.doc { padding: 56px 0 8px; border-bottom: 1px solid var(--line); }
+  header.doc h1 { font-size: 30px; letter-spacing: -.02em; margin: 0 0 10px; text-wrap: balance; }
+  header.doc p.sub { color: var(--ink-2); max-width: 68ch; margin: 0 0 18px; }
+  .meta { font-family: var(--mono); font-size: 12px; color: var(--ink-3); display: flex; gap: 24px; flex-wrap: wrap; padding-bottom: 20px; }
+
+  section { margin-top: 56px; }
+  section > h2 { font-size: 21px; letter-spacing: -.01em; margin: 0 0 6px; }
+  section > p.lead { color: var(--ink-2); max-width: 72ch; margin: 0 0 22px; }
+  h3 { font-size: 16px; margin: 28px 0 10px; }
+
+  /* principles */
+  .principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+  .principles div { background: var(--panel); padding: 18px 20px; }
+  .principles b { display: block; margin-bottom: 6px; font-size: 14px; }
+  .principles span { color: var(--ink-2); font-size: 13.5px; }
+
+  /* flow diagram */
+  .flow { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 18px 0; }
+  .flow .step { min-width: 148px; background: var(--panel); border: 1px solid var(--line); padding: 12px 14px; }
+  .flow .step b { display: block; font-size: 13px; margin-bottom: 4px; }
+  .flow .step span { font-size: 12px; color: var(--ink-2); display: block; }
+  .flow .arrow { display: flex; align-items: center; padding: 0 8px; color: var(--ink-3); font-family: var(--mono); flex: none; }
+  .flow .gate { border: 1.5px dashed var(--red); }
+  .flow .gate b { color: var(--red); }
+
+  /* wireframe canvas */
+  .frame-wrap { overflow-x: auto; border: 1px solid var(--line); background: var(--wf-fill-2); padding: 28px; }
+  .frame { width: 1160px; background: var(--panel); border: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
+  .frame, .frame * { border-radius: 0; }
+
+  /* generic wireframe atoms */
+  .wf-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line-2); }
+  .wf-box { background: var(--wf-fill); border: 1px solid var(--line); padding: 6px 10px; color: var(--ink-2); white-space: nowrap; }
+  .wf-box.ghost { background: transparent; border-style: dashed; }
+  .wf-pill { border: 1px solid var(--line); padding: 3px 10px; font-family: var(--mono); font-size: 11px; white-space: nowrap; color: var(--ink-2); }
+  .wf-pill.fill { background: var(--wf-fill); }
+  .wf-stripe { width: 4px; align-self: stretch; background: var(--ink-3); flex: none; }
+  .wf-line { height: 8px; background: var(--wf-fill); margin: 5px 0; }
+  .wf-line.w40 { width: 40%; } .wf-line.w60 { width: 60%; } .wf-line.w80 { width: 80%; } .wf-line.w25 { width: 25%; }
+  .grow { flex: 1; }
+  .mono { font-family: var(--mono); font-size: 11px; }
+  .dim { color: var(--ink-3); }
+
+  /* annotation chips */
+  .n {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 18px; height: 18px; padding: 0 4px;
+    background: var(--red); color: var(--paper);
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    flex: none; line-height: 1;
+  }
+  .notes { margin: 18px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; max-width: 78ch; }
+  .notes li { display: flex; gap: 10px; align-items: baseline; font-size: 13.5px; color: var(--ink-2); }
+  .notes li .n { transform: translateY(2px); }
+  .notes b { color: var(--ink); }
+
+  /* queue rows */
+  .case-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px 10px 0; border-bottom: 1px solid var(--line-2); }
+  .case-row .title { color: var(--ink); font-size: 13px; white-space: nowrap; }
+  .attn { background: var(--red-soft); }
+
+  /* case detail panes */
+  .panes { display: flex; align-items: stretch; }
+  .pane { padding: 12px 14px; min-height: 430px; }
+  .pane + .pane { border-left: 1px solid var(--line-2); }
+  .pane h4 { margin: 0 0 10px; font-size: 11px; font-family: var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); font-weight: 600; display:flex; gap:8px; align-items:center;}
+
+  .ledger-item { border-left: 2px solid var(--line); padding: 2px 0 10px 12px; margin-left: 4px; }
+  .ledger-item b { display: block; font-size: 12px; color: var(--ink); }
+  .ledger-item .tool { border: 1px dashed var(--line); padding: 4px 8px; margin-top: 5px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); display: flex; gap: 8px; align-items: center; }
+  .ledger-item.live { border-left-color: var(--red); }
+
+  .hypo { border: 1px solid var(--line); margin-bottom: 10px; padding: 10px 12px; }
+  .hypo .head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .hypo .conf { height: 6px; background: var(--wf-fill); margin-top: 8px; position: relative; }
+  .hypo .conf i { position: absolute; inset: 0 auto 0 0; background: var(--ink-3); display: block; }
+
+  .ev { border-bottom: 1px solid var(--line-2); padding: 8px 0; }
+  .ev .src { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+
+  /* approval bar */
+  .approve-bar { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-top: 1.5px dashed var(--red); background: var(--red-soft); }
+  .btn { border: 1px solid var(--ink); color: var(--ink); padding: 6px 14px; font-size: 12px; white-space: nowrap; background: var(--panel); }
+  .btn.primary { background: var(--ink); color: var(--panel); }
+  .btn.danger { border-color: var(--red); color: var(--red); }
+
+  /* artifact page */
+  .doc-block { border: 1px solid var(--line); padding: 12px 14px; margin-bottom: 12px; }
+  .cite { display: inline-flex; border: 1px solid var(--line); font-family: var(--mono); font-size: 9.5px; padding: 0 5px; color: var(--ink-3); transform: translateY(-4px); }
+  .causal { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 10px 0; }
+  .causal .wf-box { font-size: 11px; }
+
+  /* governance */
+  .agent-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; padding: 14px; }
+  .agent-card { border: 1px solid var(--line); padding: 10px 12px; }
+  .budget { height: 8px; background: var(--wf-fill); margin: 8px 0 4px; position: relative; }
+  .budget i { position: absolute; inset: 0 auto 0 0; background: var(--ink-3); }
+
+  /* telegram */
+  .tg { display: grid; gap: 10px; max-width: 560px; padding: 20px; }
+  .bubble { border: 1px solid var(--line); background: var(--panel); padding: 10px 14px; font-size: 13px; max-width: 90%; }
+  .bubble .who { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); margin-bottom: 4px; display:flex; gap:8px; align-items:center; }
+  .bubble.user { justify-self: end; background: var(--wf-fill); }
+  .bubble .btn-row { display: flex; gap: 6px; margin-top: 8px; }
+  .bubble .btn-row span { border: 1px solid var(--line); padding: 4px 10px; font-size: 11px; color: var(--ink-2); }
+
+  /* states */
+  .states { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .state { border: 1px solid var(--line); background: var(--panel); padding: 16px; font-size: 13px; }
+  .state b { display: block; margin-bottom: 8px; font-size: 13px; }
+  .skel { height: 10px; background: var(--wf-fill); margin: 6px 0; }
+
+  .refs { font-size: 13px; color: var(--ink-2); max-width: 78ch; }
+  .refs a { color: var(--ink); }
+  table.ia { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  table.ia th, table.ia td { text-align: left; border-bottom: 1px solid var(--line-2); padding: 8px 12px 8px 0; vertical-align: top; }
+  table.ia th { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); font-weight: 600; }
+  td.mono { font-size: 12px; }
+</style>
+
+<main>
+<header class="doc">
+  <h1>Agentic SRE Team - Ops Console Wireframes</h1>
+  <p class="sub">Low-fidelity wireframes for the human side of the agentic SRE system: where the on-call engineer watches investigations unfold, verifies evidence, and makes the two decisions that matter. Red numbered markers carry the design rationale for each screen.</p>
+  <div class="meta">
+    <span>v1 - 2026-07-11</span>
+    <span>status: for review</span>
+    <span>spec: docs/superpowers/specs/2026-07-11-agentic-sre-team-design.md</span>
+  </div>
+</header>
+
+<section>
+  <h2>Design principles</h2>
+  <p class="lead">Derived from the reference research: Datadog Bits AI's hypothesis-tree investigations, Google's incident-management guide, and the agentic-UX patterns that survive user testing (progress ledgers, planning visibility, tool-use disclosure, outcome-preview approvals, confidence signaling).</p>
+  <div class="principles">
+    <div><b>Decisions first, spectating second</b><span>The engineer's job here is two approvals per case, not watching a stream. Anything waiting on a human is always the loudest thing on screen.</span></div>
+    <div><b>Every claim is a receipt</b><span>No agent statement appears without a citation that opens the underlying evidence: the exact query, the raw excerpt, and a deep link to Grafana. Trust is verified, not asked for.</span></div>
+    <div><b>Show the reasoning, collapse the noise</b><span>The progress ledger streams what each agent is doing and why, with tool calls collapsed by default. Transparency without forcing anyone to read raw logs.</span></div>
+    <div><b>Approvals preview their outcome</b><span>The approve button states exactly what happens next ("publishes to Telegram, opens runbook drafting"). Never a bare confirm dialog.</span></div>
+    <div><b>The case is the living incident doc</b><span>One page accumulates the whole record: signals, hypotheses, evidence, artifacts, decisions. Google IMAG's living document, machine-maintained.</span></div>
+    <div><b>Cost and control stay visible</b><span>Per-case spend on every row, per-agent budgets on the governance page, and a global pause that is one click away. Autonomy is governed, not assumed.</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>Primary workflow</h2>
+  <p class="lead">One incident, end to end. The engineer touches the flow at the two dashed gates; everything else is observable but hands-off. The same gates are mirrored in Telegram so approval never requires opening the console.</p>
+  <div class="flow">
+    <div class="step"><b>Signal</b><span>Grafana alert or Telegram report</span></div>
+    <div class="arrow">-&gt;</div>
+    <div class="step"><b>Triage</b><span>Severity, dedup, hypotheses seeded. Ack posted to Telegram</span></div>
+    <div class="arrow">-&gt;</div>
+    <div class="step"><b>Investigate</b><span>Parallel evidence workers: metrics, logs, infra, changes</span></div>
+    <div class="arrow">-&gt;</div>
+    <div class="step"><b>RCA draft</b><span>Causal chain, mitigation first, citations verified</span></div>
+    <div class="arrow">-&gt;</div>
+    <div class="step gate"><b>Gate 1: RCA review</b><span>Approve, edit, or reject. UI or Telegram</span></div>
+    <div class="arrow">-&gt;</div>
+    <div class="step"><b>Runbook draft</b><span>Pre-checks, steps, post-checks, rollback</span></div>
+    <div class="arrow">-&gt;</div>
+    <div class="step gate"><b>Gate 2: Runbook review</b><span>Approve, edit, or reject</span></div>
+    <div class="arrow">-&gt;</div>
+    <div class="step"><b>Publish + close</b><span>Artifacts to Telegram, runbook indexed for next time</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>Information architecture</h2>
+  <table class="ia">
+    <tr><th>Route</th><th>Screen</th><th>Job</th></tr>
+    <tr><td class="mono">/cases</td><td>Case queue</td><td>Answer "what needs me right now" in under five seconds; triage the rest by scanning.</td></tr>
+    <tr><td class="mono">/cases/:id</td><td>Case detail</td><td>The living incident document: live ledger, hypothesis board, evidence. Where trust is built.</td></tr>
+    <tr><td class="mono">/cases/:id/artifact/:kind</td><td>Artifact review</td><td>Read the RCA or runbook, verify citations, decide. The approval moment.</td></tr>
+    <tr><td class="mono">/governance</td><td>Governance</td><td>Budgets, permissions, suppression stats, audit trail, global pause.</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>Screen 1 - Case queue</h2>
+  <div class="frame-wrap">
+    <div class="frame">
+      <div class="wf-bar">
+        <span class="wf-box">SRE TEAM</span>
+        <span class="wf-pill">env: local-docker</span>
+        <span class="grow"></span>
+        <span class="wf-pill fill">agents: 5 idle · 2 running</span> <span class="n">1</span>
+        <span class="wf-pill" style="border-color: var(--red); color: var(--red);">PAUSE ALL</span> <span class="n">2</span>
+      </div>
+      <div class="wf-bar">
+        <span class="wf-pill fill">Needs you (2)</span> <span class="n">3</span>
+        <span class="wf-pill">Active (3)</span>
+        <span class="wf-pill">Needs human (0)</span>
+        <span class="wf-pill">Closed (14)</span>
+        <span class="grow"></span>
+        <span class="wf-box ghost">search cases</span>
+        <span class="wf-pill">severity: all</span>
+      </div>
+
+      <div class="case-row attn">
+        <span class="wf-stripe"></span>
+        <span class="mono dim">CASE-0142</span>
+        <span class="title">Error rate spike on sut-api /posts</span>
+        <span class="wf-pill">SEV-2</span>
+        <span class="wf-pill fill">RCA awaiting review</span> <span class="n">4</span>
+        <span class="mono dim">grafana</span>
+        <span class="grow"></span>
+        <span class="mono dim">waiting 4m</span>
+        <span class="mono dim">$0.87</span> <span class="n">5</span>
+        <span class="wf-box">Review RCA</span>
+      </div>
+      <div class="case-row attn">
+        <span class="wf-stripe"></span>
+        <span class="mono dim">CASE-0141</span>
+        <span class="title">DB connections exhausted after deploy 4f2c1</span>
+        <span class="wf-pill">SEV-1</span>
+        <span class="wf-pill fill">Runbook awaiting review</span>
+        <span class="mono dim">grafana</span>
+        <span class="grow"></span>
+        <span class="mono dim">waiting 1m</span>
+        <span class="mono dim">$1.42</span>
+        <span class="wf-box">Review runbook</span>
+      </div>
+      <div class="case-row">
+        <span class="wf-stripe" style="background: var(--line);"></span>
+        <span class="mono dim">CASE-0143</span>
+        <span class="title">p95 latency climbing on /posts?limit=50</span>
+        <span class="wf-pill">SEV-3</span>
+        <span class="wf-pill">Investigating</span>
+        <span class="mono" style="color: var(--red);">● live</span> <span class="n">6</span>
+        <span class="mono dim">grafana</span>
+        <span class="grow"></span>
+        <span class="mono dim">3m elapsed</span>
+        <span class="mono dim">$0.31</span>
+        <span class="wf-box ghost">Watch</span>
+      </div>
+      <div class="case-row">
+        <span class="wf-stripe" style="background: var(--line);"></span>
+        <span class="mono dim">CASE-0140</span>
+        <span class="title">Report from @minli: checkout feels slow since noon</span>
+        <span class="wf-pill">SEV-4</span>
+        <span class="wf-pill">Triaging</span>
+        <span class="mono dim">telegram</span> <span class="n">7</span>
+        <span class="grow"></span>
+        <span class="mono dim">40s elapsed</span>
+        <span class="mono dim">$0.02</span>
+        <span class="wf-box ghost">Watch</span>
+      </div>
+    </div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span><b>Agent fleet status</b> is ambient, not a page you must visit. Click opens governance.</span></li>
+    <li><span class="n">2</span><span><b>Global pause</b> (the framework's kill switch) lives on every screen's top bar. One click, confirm, audit-logged.</span></li>
+    <li><span class="n">3</span><span><b>"Needs you" is the default tab</b> and cases waiting on approval sort above everything, highlighted. The queue is a to-do list of decisions, not a monitoring wall.</span></li>
+    <li><span class="n">4</span><span><b>Phase chip</b> shows the case's position in the pipeline; a row's primary action ("Review RCA") jumps straight to the artifact screen.</span></li>
+    <li><span class="n">5</span><span><b>Per-case spend</b> on every row keeps the cost-discipline pillar visible where work happens, not buried in a report.</span></li>
+    <li><span class="n">6</span><span><b>Live indicator</b> marks cases with an agent actively streaming; the only animated element on the page.</span></li>
+    <li><span class="n">7</span><span><b>Source is first-class</b>: alert-born and human-reported cases share one queue, per the framework's single-intake principle.</span></li>
+  </ul>
+</section>
+
+<section>
+  <h2>Screen 2 - Case detail (live investigation)</h2>
+  <p class="lead">Three panes mirror the mental model from the research: what the agents are doing (ledger), what they currently believe (hypothesis board), and what the beliefs rest on (evidence). Datadog Bits' hypothesis branching and the progress-ledger pattern, combined.</p>
+  <div class="frame-wrap">
+    <div class="frame">
+      <div class="wf-bar">
+        <span class="mono dim">CASE-0143</span>
+        <span class="title" style="color: var(--ink); font-size: 13px;">p95 latency climbing on /posts?limit=50</span>
+        <span class="wf-pill">SEV-3</span>
+        <span class="wf-pill">Investigating · round 1 of 2</span> <span class="n">1</span>
+        <span class="grow"></span>
+        <span class="wf-pill">Open in Grafana</span>
+        <span class="wf-pill">Escalate to human</span> <span class="n">2</span>
+        <span class="wf-pill" style="border-color: var(--red); color: var(--red);">Pause case</span>
+      </div>
+      <div class="panes">
+        <div class="pane" style="width: 33%;">
+          <h4>Progress ledger <span class="n">3</span></h4>
+          <div class="ledger-item">
+            <b>Triage · flash tier · 12s</b>
+            <span class="dim">SEV-3 proposed. 4 hypotheses seeded. No open duplicate found. Ack posted to Telegram.</span>
+          </div>
+          <div class="ledger-item">
+            <b>Plan · deterministic</b>
+            <span class="dim">Effort: parallel fan-out (4 workers)</span> <span class="n">4</span>
+          </div>
+          <div class="ledger-item">
+            <b>Metrics worker · done · 41s</b>
+            <div class="tool">query_prometheus · p95 by handler <span class="grow"></span>+E1</div>
+            <div class="tool">query_prometheus · db conn pool <span class="grow"></span>+E2</div> <span class="n">5</span>
+          </div>
+          <div class="ledger-item">
+            <b>Changes worker · done · 28s</b>
+            <div class="tool">git_log · sut repo, last 24h <span class="grow"></span>+E4</div>
+          </div>
+          <div class="ledger-item live">
+            <b>Logs worker · running</b>
+            <span class="dim">Checking slow-query log patterns for H2...</span> <span class="n">6</span>
+            <div class="tool">query_loki · duration&gt;500ms ...</div>
+          </div>
+        </div>
+        <div class="pane grow">
+          <h4>Hypothesis board <span class="n">7</span></h4>
+          <div class="hypo">
+            <div class="head"><span class="wf-pill fill">H2 · SUPPORTED</span><span class="mono dim">confidence 0.78</span></div>
+            <span class="dim">Unindexed query introduced in deploy 4f2c1 causes sequential scan on posts table under load.</span>
+            <div class="conf"><i style="width:78%"></i></div>
+            <div class="mono dim" style="margin-top:6px;">evidence: 3 for · 0 against · E2 E4 E5</div> <span class="n">8</span>
+          </div>
+          <div class="hypo">
+            <div class="head"><span class="wf-pill">H1 · OPEN</span><span class="mono dim">confidence 0.31</span></div>
+            <span class="dim">Connection pool exhaustion from traffic increase.</span>
+            <div class="conf"><i style="width:31%"></i></div>
+            <div class="mono dim" style="margin-top:6px;">evidence: 1 for · 1 against · E1 E3</div>
+          </div>
+          <div class="hypo" style="opacity:.55;">
+            <div class="head"><span class="wf-pill">H3 · REFUTED</span><span class="mono dim">confidence 0.05</span></div>
+            <span class="dim">Host CPU saturation on the docker node.</span> <span class="n">9</span>
+            <div class="mono dim" style="margin-top:6px;">refuted by E1: node CPU flat at 22%</div>
+          </div>
+          <div class="wf-box ghost" style="margin-top:8px; display:inline-block;">+ H4 collapsed</div>
+        </div>
+        <div class="pane" style="width: 30%;">
+          <h4>Evidence <span class="n">10</span></h4>
+          <div class="ev">
+            <div class="src"><span class="wf-pill fill">E2</span><span class="mono dim">prometheus · 14:02:11</span></div>
+            <span class="dim">pg_stat_activity active connections 5x baseline from 13:55</span>
+            <div class="wf-line w80"></div>
+            <div class="mono dim">query: pg_stat_activity_count{...} <span style="color:var(--red)">open in Grafana -&gt;</span></div> <span class="n">11</span>
+          </div>
+          <div class="ev">
+            <div class="src"><span class="wf-pill fill">E4</span><span class="mono dim">git · 13:48:02</span></div>
+            <span class="dim">deploy 4f2c1 "feat: add sort by comment count" touches posts query builder</span>
+            <div class="mono dim">source: git log + diff excerpt</div>
+          </div>
+          <div class="ev">
+            <div class="src"><span class="wf-pill fill">E5</span><span class="mono dim">loki · 14:04:40</span></div>
+            <span class="dim">slow query log: SELECT ... ORDER BY comment_count, 1.4s avg, no index</span>
+            <div class="wf-line w60"></div>
+          </div>
+        </div>
+      </div>
+      <div class="approve-bar">
+        <span class="mono" style="color: var(--red);">No decision needed yet</span>
+        <span class="dim" style="font-size:12px;">Next gate: RCA review, expected in ~2m. You will be pinged on Telegram.</span> <span class="n">12</span>
+        <span class="grow"></span>
+        <span class="btn">Add context for the agents</span> <span class="n">13</span>
+      </div>
+    </div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span><b>Round counter</b> exposes the bounded-loop guarantee: investigations cannot run forever and the human can see where they are.</span></li>
+    <li><span class="n">2</span><span><b>Escalate to human</b> halts agent work and parks the case, preserving everything gathered. Recovery routing is a first-class action, not a failure mode.</span></li>
+    <li><span class="n">3</span><span><b>Progress ledger</b>: one entry per graph node with model tier and duration. Streaming text appears in place.</span></li>
+    <li><span class="n">4</span><span><b>Planning visibility</b>: the fan-out decision (which workers, why) is a ledger entry the human can read before results exist.</span></li>
+    <li><span class="n">5</span><span><b>Tool-use disclosure</b>: each tool call is a collapsed one-liner tagged with the evidence ID it produced. Expanding shows args and raw result.</span></li>
+    <li><span class="n">6</span><span><b>The live entry states its intent</b> ("checking slow-query patterns for H2"), not just activity. Reasoning transparency over spinners.</span></li>
+    <li><span class="n">7</span><span><b>Hypothesis board is the centerpiece</b>, sorted by confidence. This is the "what do we believe right now" view that Bits AI and Traversal converge on.</span></li>
+    <li><span class="n">8</span><span><b>Evidence chips on each hypothesis</b> cross-link to the evidence pane; for/against counts make disagreement visible instead of averaged away.</span></li>
+    <li><span class="n">9</span><span><b>Refuted hypotheses stay visible</b> (dimmed) with the refuting evidence named. Showing pruned branches is what makes the surviving diagnosis credible.</span></li>
+    <li><span class="n">10</span><span><b>Evidence items are receipts</b>: source, timestamp, query, excerpt. The IDs (E1..En) are the same ones the RCA will cite.</span></li>
+    <li><span class="n">11</span><span><b>Deep link to Grafana Explore</b> with the exact query pre-filled, so verification is one click, on the operator's own stack.</span></li>
+    <li><span class="n">12</span><span><b>The decision bar is always docked</b>, even when empty, so the engineer always knows whether they are needed and when they will be.</span></li>
+    <li><span class="n">13</span><span><b>Add context</b> lets a human inject knowledge mid-flight ("we migrated the db last night") which lands as a high-priority signal for the next node.</span></li>
+  </ul>
+</section>
+
+<section>
+  <h2>Screen 3 - Artifact review (Gate 1: RCA)</h2>
+  <p class="lead">The approval moment. Left: the rendered artifact, mitigation first. Right: the citation inspector and verification status. The decision bar previews exactly what approval does.</p>
+  <div class="frame-wrap">
+    <div class="frame">
+      <div class="wf-bar">
+        <span class="mono dim">CASE-0142</span>
+        <span class="title" style="color: var(--ink); font-size:13px;">RCA v2 · Error rate spike on sut-api /posts</span>
+        <span class="wf-pill fill">citations verified 11/11</span> <span class="n">1</span>
+        <span class="grow"></span>
+        <span class="mono dim">drafted by frontier tier · claude-sonnet@vertex · $0.44</span> <span class="n">2</span>
+      </div>
+      <div class="panes">
+        <div class="pane grow">
+          <div class="doc-block" style="border-color: var(--ink);">
+            <b style="font-size:13px; color:var(--ink);">Immediate mitigation</b> <span class="n">3</span>
+            <div class="wf-line w80"></div>
+            <div class="wf-line w60"></div>
+            <span class="dim mono">rollback deploy 4f2c1 OR create index concurrently <span class="cite">E4</span> <span class="cite">E5</span></span>
+          </div>
+          <div class="doc-block">
+            <b style="font-size:13px; color:var(--ink);">Root cause</b>
+            <div class="causal"> <span class="n">4</span>
+              <span class="wf-box">deploy 4f2c1<br>new sort param</span><span class="mono dim">-&gt;</span>
+              <span class="wf-box">unindexed<br>ORDER BY</span><span class="mono dim">-&gt;</span>
+              <span class="wf-box">seq scan<br>1.4s avg <span class="cite">E5</span></span><span class="mono dim">-&gt;</span>
+              <span class="wf-box">pool saturation <span class="cite">E2</span></span><span class="mono dim">-&gt;</span>
+              <span class="wf-box">5xx on /posts <span class="cite">E1</span></span>
+            </div>
+          </div>
+          <div class="doc-block">
+            <b style="font-size:13px; color:var(--ink);">Blast radius + timeline</b>
+            <div class="wf-line w40"></div>
+            <div class="wf-line w80"></div>
+            <div class="wf-line w60"></div>
+          </div>
+          <div class="doc-block" style="border-style: dashed;">
+            <b style="font-size:13px;">Alternatives considered and rejected</b> <span class="n">5</span>
+            <div class="wf-line w60"></div>
+            <div class="wf-line w40"></div>
+          </div>
+        </div>
+        <div class="pane" style="width: 30%;">
+          <h4>Citation inspector <span class="n">6</span></h4>
+          <div class="ev">
+            <div class="src"><span class="wf-pill fill">E5</span><span class="mono dim">loki · 14:04</span></div>
+            <span class="dim">Selected claim: "seq scan 1.4s avg". Raw excerpt + query below.</span>
+            <div class="wf-line w80"></div><div class="wf-line w60"></div>
+            <div class="mono" style="color:var(--red);">open in Grafana -&gt;</div>
+          </div>
+          <h4 style="margin-top:18px;">Review checklist</h4>
+          <div class="dim" style="font-size:12px;">
+            <div class="wf-line w80"></div>
+            <div class="wf-line w60"></div>
+            <span>Verifier: all claims cite evidence; 0 unsupported claims; confidence 0.81</span> <span class="n">7</span>
+          </div>
+        </div>
+      </div>
+      <div class="approve-bar">
+        <span class="btn primary">Approve</span>
+        <span class="btn">Approve with edits</span> <span class="n">8</span>
+        <span class="btn danger">Reject</span>
+        <span class="dim" style="font-size:12px;">Approving publishes this RCA to the ops Telegram group and starts runbook drafting. It does not change any system.</span> <span class="n">9</span>
+        <span class="grow"></span>
+        <span class="mono dim">reviewer: alex.goh · logged</span> <span class="n">10</span>
+      </div>
+    </div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span><b>Verification badge</b> summarizes the citation-check node's result. Clicking lists any claims that failed and how they were repaired.</span></li>
+    <li><span class="n">2</span><span><b>Provenance strip</b>: which tier and model drafted it and what it cost. Reproducible-run metadata one click deeper.</span></li>
+    <li><span class="n">3</span><span><b>Mitigation before root cause</b>, always the first block (Google IMAG). A reviewer under pressure reads only this and still acts safely.</span></li>
+    <li><span class="n">4</span><span><b>Causal chain as the spine</b> of the RCA: each hop cites the evidence that established it. This is the "single causally consistent diagnosis" pattern.</span></li>
+    <li><span class="n">5</span><span><b>Rejected alternatives stay in the artifact</b>, so the reviewer sees what was ruled out, not just what won.</span></li>
+    <li><span class="n">6</span><span><b>Citation chips are interactive</b>: clicking a chip in the text loads that evidence here, with the raw excerpt and Grafana deep link.</span></li>
+    <li><span class="n">7</span><span><b>Confidence is a number with provenance</b>, not a vibe: it links back to the hypothesis board state that produced it.</span></li>
+    <li><span class="n">8</span><span><b>Approve with edits</b> opens an inline diff editor; both versions are stored and the diff is attached to the approval record.</span></li>
+    <li><span class="n">9</span><span><b>Outcome preview</b> in plain words next to the buttons. States what approval publishes and reassures what it cannot do.</span></li>
+    <li><span class="n">10</span><span><b>Reviewer identity</b> shown at the point of decision; the approval is bound to the case in the audit log.</span></li>
+  </ul>
+</section>
+
+<section>
+  <h2>Screen 4 - Governance</h2>
+  <div class="frame-wrap">
+    <div class="frame">
+      <div class="wf-bar">
+        <span class="wf-box">GOVERNANCE</span>
+        <span class="grow"></span>
+        <span class="wf-pill">audit export</span>
+        <span class="wf-pill" style="border-color: var(--red); color: var(--red);">PAUSE ALL AGENTS</span>
+      </div>
+      <div class="agent-cards">
+        <div class="agent-card">
+          <b style="font-size:12px; color:var(--ink);">Triage</b> <span class="mono dim">flash · small</span>
+          <div class="budget"><i style="width:22%"></i></div>
+          <span class="mono dim">$0.61 / $3 today</span> <span class="n">1</span>
+          <div class="wf-box ghost" style="margin-top:8px;">tools: 4 · manifest</div> <span class="n">2</span>
+        </div>
+        <div class="agent-card">
+          <b style="font-size:12px; color:var(--ink);">Workers x4</b> <span class="mono dim">flash · medium</span>
+          <div class="budget"><i style="width:48%"></i></div>
+          <span class="mono dim">$2.9 / $6 today</span>
+          <div class="wf-box ghost" style="margin-top:8px;">tools: 14 · manifest</div>
+        </div>
+        <div class="agent-card">
+          <b style="font-size:12px; color:var(--ink);">Synthesizer</b> <span class="mono dim">flash · medium</span>
+          <div class="budget"><i style="width:30%"></i></div>
+          <span class="mono dim">$0.8 / $3 today</span>
+          <div class="wf-box ghost" style="margin-top:8px;">tools: 1 · manifest</div>
+        </div>
+        <div class="agent-card" style="border-color: var(--ink);">
+          <b style="font-size:12px; color:var(--ink);">RCA</b> <span class="mono dim">claude@vertex · frontier</span>
+          <div class="budget"><i style="width:71%"></i></div>
+          <span class="mono dim">$4.2 / $6 today</span> <span class="n">3</span>
+          <div class="wf-box ghost" style="margin-top:8px;">tools: 2 · manifest</div>
+        </div>
+        <div class="agent-card">
+          <b style="font-size:12px; color:var(--ink);">Remediation</b> <span class="mono dim">claude@vertex · frontier</span>
+          <div class="budget"><i style="width:12%"></i></div>
+          <span class="mono dim">$0.7 / $6 today</span>
+          <div class="wf-box ghost" style="margin-top:8px;">tools: 3 · manifest</div>
+        </div>
+      </div>
+      <div class="wf-bar" style="border-top: 1px solid var(--line-2);">
+        <span class="wf-pill fill">signals in 24h: 87</span>
+        <span class="wf-pill">deduped: 41</span>
+        <span class="wf-pill">burst-suppressed: 22</span>
+        <span class="wf-pill">cases opened: 9</span> <span class="n">4</span>
+        <span class="grow"></span>
+        <span class="mono dim">suppression rate 72% · every suppression logged</span>
+      </div>
+      <div class="pane" style="min-height:120px;">
+        <h4>Audit stream <span class="n">5</span></h4>
+        <div class="mono dim" style="display:grid; gap:6px;">
+          <span>14:22:04 · CASE-0142 · approval · rca v2 approved by alex.goh (edited: no)</span>
+          <span>14:20:31 · CASE-0142 · llm_call · rca node · claude-sonnet@vertex · in 41k out 2.1k tok</span>
+          <span>14:19:58 · CASE-0143 · tool_call · query_loki · logs worker · 340ms</span>
+          <span>14:18:12 · system · suppression · burst collapse 6 signals -&gt; CASE-0143</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span><b>Budget bars per agent</b>: today's spend against the manifest cap. Breach behavior (halt + page) is documented inline on click.</span></li>
+    <li><span class="n">2</span><span><b>Manifest view</b> expands to the YAML-declared tool list with per-tool revoke toggles; revocation takes effect on the next tool call.</span></li>
+    <li><span class="n">3</span><span><b>Frontier agents are visually distinguished</b>; they carry the tightest caps and the most scrutiny.</span></li>
+    <li><span class="n">4</span><span><b>Noise-control counters</b> answer "what did we NOT wake an agent for today", which is the framework's cost-discipline proof.</span></li>
+    <li><span class="n">5</span><span><b>The audit stream is readable</b>, not just exportable: every LLM call, tool call, approval, and suppression, newest first.</span></li>
+  </ul>
+</section>
+
+<section>
+  <h2>Telegram companion flow</h2>
+  <p class="lead">Telegram is the notification and lightweight-decision surface; the console is the verification surface. Every message deep-links to the corresponding console view.</p>
+  <div class="frame-wrap">
+    <div class="tg">
+      <div class="bubble"><div class="who">SRE TEAM BOT · 14:02</div>Alert received: p95 latency on sut-api /posts. Opened CASE-0143, SEV-3 proposed. Investigating with 4 workers. <span class="mono dim">console link</span> <span class="n">1</span></div>
+      <div class="bubble"><div class="who">SRE TEAM BOT · 14:05</div>Early findings on CASE-0143: strongest hypothesis is an unindexed query from deploy 4f2c1 (confidence 0.78). Full RCA in ~2m. <span class="n">2</span></div>
+      <div class="bubble">
+        <div class="who">SRE TEAM BOT · 14:07</div>RCA ready for review on CASE-0143. Mitigation: rollback 4f2c1 or add index. 11/11 citations verified.
+        <div class="btn-row"><span>Approve</span><span>Reject</span><span>Review in console</span></div> <span class="n">3</span>
+      </div>
+      <div class="bubble user"><div class="who">ALEX · 14:09</div>[taps Approve]</div>
+      <div class="bubble"><div class="who">SRE TEAM BOT · 14:09</div>RCA approved by @alex. Publishing summary here and drafting the runbook next. <span class="n">4</span></div>
+      <div class="bubble"><div class="who">SRE TEAM BOT · 14:11</div>Also: report from @minli was merged into CASE-0143 as supporting signal (matching symptoms, same window). <span class="n">5</span></div>
+    </div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span><b>The ack is immediate and specific</b>: case ID, proposed severity, what happens next. The CL role from Google IMAG, automated.</span></li>
+    <li><span class="n">2</span><span><b>Status updates at phase transitions only</b>, never a firehose. Confidence is stated in the message.</span></li>
+    <li><span class="n">3</span><span><b>Inline approval mirrors gate 1</b>. Approve is allowed from chat because the citation check already passed and the outcome is publish-only; anything needing scrutiny routes to the console. Identity of the tapper is recorded.</span></li>
+    <li><span class="n">4</span><span><b>Every decision echoes back</b> with who made it: the chat thread stays a truthful record of the case.</span></li>
+    <li><span class="n">5</span><span><b>Dedup is communicated</b>, so the human reporter learns their report mattered and where it went.</span></li>
+  </ul>
+</section>
+
+<section>
+  <h2>System states</h2>
+  <div class="states">
+    <div class="state">
+      <b>Queue loading</b>
+      <div class="skel" style="width:80%"></div>
+      <div class="skel" style="width:65%"></div>
+      <div class="skel" style="width:72%"></div>
+      <span class="dim">Skeleton rows in the shape of case rows. No spinners.</span>
+    </div>
+    <div class="state">
+      <b>Empty queue</b>
+      <span class="dim">"No active cases. Last case closed 2h ago. Intake is healthy: webhook OK, poller OK, Telegram OK." An empty queue proves the system is alive, not idle.</span>
+    </div>
+    <div class="state">
+      <b>Stream reconnecting</b>
+      <span class="dim">Thin banner on case detail: "Live stream reconnecting - showing last saved state." State is checkpointed, so nothing is lost; the banner says so.</span>
+    </div>
+    <div class="state">
+      <b>Case parked: needs human</b>
+      <span class="dim">Model provider failed after retries or budget cap hit. Case shows the halt reason, everything gathered so far, and a "Resume" action once the human clears it.</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Visual direction for implementation</h2>
+  <p class="lead">These wireframes are deliberately monochrome. The build phase applies: a dark-first dense theme (cockpit density) with a light theme of equal care; severity as a semantic color scale kept separate from the single interface accent; tabular numerals and a monospace face for all IDs, queries, and metrics; no decorative animation - the only motion is real streaming state. Charts and meters will follow the dataviz system when real telemetry rendering is built.</p>
+</section>
+
+<section>
+  <h2>References</h2>
+  <p class="refs">
+    Datadog, <a href="https://www.datadoghq.com/blog/building-bits-ai-sre/">How we built an AI SRE agent that investigates like a team of engineers</a> ·
+    Datadog, <a href="https://docs.datadoghq.com/bits_ai/bits_ai_sre/investigate_issues/">Bits Investigation docs</a> ·
+    Google, <a href="https://sre.google/resources/practices-and-processes/incident-management-guide/">Incident Management Guide</a> ·
+    Traversal, <a href="https://www.traversal.com/blog/ai-for-sre-site-reliability-engineering-aisre">AI for SRE</a> ·
+    Mantlr, <a href="https://mantlr.com/blog/designing-for-ai-agents-ux-patterns-2026">Designing for AI agents: 10 UX patterns</a> ·
+    HatchWorks, <a href="https://hatchworks.com/blog/ai-agents/agent-ux-patterns/">Agent UX patterns</a> ·
+    incident.io, <a href="https://incident.io/ai-sre">AI SRE</a>
+  </p>
+</section>
+</main>
