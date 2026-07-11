@@ -97,6 +97,10 @@ Design decisions below trace to:
   (failed job logs with exit codes, pipeline config, merge-request diff,
   repository contents); run history distinguishes flaky from deterministic
   failures.
+- **Robusta platform**: alert grouping so investigation cost scales with
+  unique incidents; auto-learned per-environment skills; "Ask Holmes" chat
+  with alert-context payloads and SSE tool events; environment-wide activity
+  timeline. Full comparison in section 13.
 
 ## 3. Architecture
 
@@ -140,6 +144,11 @@ gateway for no functional gain.
 2. **Grafana poller** - background task polling the Grafana Cloud alerting API
    for firing alert instances. Default for local laptops (no public URL or
    tunnel needed). Deduplicates against webhook intake by alert fingerprint.
+2a. **Chat kickoff** - a conversation in the ops console chat (section 6a)
+   can be promoted into a case: the gateway converts the thread's question
+   plus any attached context into a `Signal` with `source: chat` and runs
+   the standard case graph with all gates. Chat is a first-class intake
+   path, not a side channel.
 3. **Telegram reports** - bot via long polling. Messages in the configured
    group/DM become human-report signals. The bot also carries outbound
    notifications and approval buttons.
@@ -158,6 +167,16 @@ debounce, burst suppression (N similar signals in M seconds collapse to one
 case), and a cheap incident-likelihood score for chat messages so low-value
 chatter gets a canned reply and no agent spend. Suppression events are
 audit-logged and counted on the governance page.
+
+**Correlation grouping** (adopted from Robusta's grouping engine): beyond
+identical-fingerprint dedup, signals with *different* signatures that share a
+service/component label and fall within a correlation window attach to the
+same open case as additional signals rather than opening parallel cases -
+e.g. a Keycloak-down alert, an admin-server 5xx alert, and a Kong upstream
+alert within two minutes become one case with three signals. Grouping rules
+are declarative config (label keys + window), deterministic, and every
+grouping decision is audit-logged. Investigation cost then scales with
+unique incidents, not alert volume.
 
 ## 4. The case graph
 
@@ -267,7 +286,15 @@ open a **draft** MR/PR (never merged, never to a protected branch), matching
 the framework's Remediation Engineer contract. Off by default.
 
 **publish + close**. Posts approved artifacts to Telegram, indexes the
-approved runbook into the runbook index (the value loop), closes the case.
+approved runbook into the runbook index (the value loop), and writes a
+**case learning**: a small-tier distillation of the closed case - signal
+signature, confirmed root cause, the queries/toolsets that produced decisive
+evidence, and the false leads (adopted from Robusta's auto-learned skills
+and the framework's prior-incident corpus). Learnings are embedded and
+retrieved at triage and planning, so recurring signatures start with prior
+knowledge: seeded hypotheses from past confirmed causes and a hint list of
+the queries that worked, cutting tokens and time on repeat incidents. Then
+the case closes.
 
 **Governance inside the graph.** A budget envelope (tokens, tool calls,
 wall-clock) is checked between nodes; breach halts the case in a
@@ -284,7 +311,9 @@ failure_class for pipeline cases, fingerprint, thread_id, budget spend),
 raw + edited body, verification result), `approvals` (decision, who, when,
 diff), `audit_events` (append-only; insert-only DB role), `runbooks` (index
 corpus + embeddings), `repos` (watched repositories: provider github|gitlab,
-slug, credentials reference, poll state), plus LangGraph checkpoint tables.
+slug, credentials reference, poll state), `case_learnings` (distilled closed
+cases + embeddings), `chat_threads` and `chat_messages` (console chat, with
+optional case linkage), plus LangGraph checkpoint tables.
 
 API (FastAPI):
 
@@ -298,13 +327,19 @@ API (FastAPI):
   resumes the thread.
 - `GET /governance` - per-agent budgets and spend, manifests, suppression
   stats; `POST /governance/pause` - global pause switch (audit-logged).
+- `POST /chat/threads`, `POST /chat/threads/{id}/messages` (SSE response) -
+  console chat; `POST /chat/threads/{id}/promote` - convert the thread into
+  a case (chat-kickoff intake).
 
 ## 6. UI
 
 React + Vite + TypeScript ops console (not a chatbot). Dark, dense,
 SRE-flavored. Screens:
 
-1. **Case queue** - severity, status, age, live-activity indicator.
+1. **Case queue** - severity, status, age, live-activity indicator, plus an
+   **environment activity timeline** strip (signal density over the last 24h
+   with case markers, adopted from Robusta's timeline view) to pinpoint when
+   a problem started and spot alert storms at a glance.
 2. **Case detail** - three-pane: live agent timeline (streamed node/tool
    events, collapsible tool results), hypothesis board (per-hypothesis status,
    confidence, evidence for/against), evidence panel with deep links to
@@ -314,6 +349,34 @@ SRE-flavored. Screens:
    with approve / edit-with-diff / reject.
 4. **Governance** - per-agent spend vs budget, manifests, suppression counts,
    global pause.
+5. **Chat** - see section 6a.
+
+### 6a. Chat surface (Ask-the-team)
+
+An AI chat UI alongside the ops console, modeled on Robusta's "Ask Holmes"
+pattern. Three modes, one interface:
+
+- **Ad-hoc Q&A**: free questions about the environment ("why is Keycloak
+  slow right now?", "what changed in spectre today?"). The gateway relays to
+  the Holmes sidecar's `/api/chat` with streaming; tool executions render
+  inline as collapsible ledger entries (same component as the case detail
+  ledger), and answers carry the same evidence receipts. Threads are
+  persisted and resumable.
+- **Case-context chat**: every case and artifact has an "Ask about this"
+  entry point that opens a thread pre-loaded with the case record (signals,
+  hypothesis board, evidence index) as context - Robusta's
+  chat-about-an-issue with the alert payload, generalized to our case model.
+- **Workflow kickoff**: any thread can be promoted to a full case. The
+  "Investigate properly" action shows a preview (proposed case title,
+  severity, kind, attached context) and on confirm creates a `source: chat`
+  signal that runs the standard case graph - triage, hypothesis board,
+  parallel evidence workers, gates, artifacts. The chat thread and the case
+  stay cross-linked, and the case's phase updates post back into the thread.
+
+Guardrails: chat runs on the same read-only toolsets, is budget-capped per
+thread per day, and cannot approve gates or trigger publishes - decisions
+stay on the approval surfaces. Chat transcripts are audit-logged like any
+agent activity.
 
 Streaming via native `EventSource` against the SSE endpoint; state via
 TanStack Query. No LangGraph-Server-specific client libraries, keeping the
@@ -474,3 +537,32 @@ seeded-failure flow.
   the Holmes transcript, and deeper Holmes tracing is a later option.
 - Postmortem scribe and observability-engineer agents are the natural next
   slice after v1; the artifact and audit schemas already carry what they need.
+
+## 13. Comparative review: Robusta
+
+A structured comparison against Robusta (home.robusta.dev), the most mature
+product in this space and the home of HolmesGPT. What they do better, and
+what this design adopted in response:
+
+| Robusta strength | Our gap before review | Adopted response |
+|---|---|---|
+| Grouping engine: cost scales with unique incidents, not alert volume; cross-signal correlation | Only identical-fingerprint dedup + burst suppression | Correlation grouping: cross-signature signals sharing service/component labels within a window attach to one case (section 3) |
+| Auto-learned skills: gets smarter per incident, ~60% token reduction on repeats | Runbook re-indexing only | Case learnings: distilled root-cause + decisive-query records, embedded and retrieved at triage/planning (section 4, publish node) |
+| "Ask Holmes" chat: ad-hoc Q&A, chat-about-an-alert with payload context | No chat surface; console was decision-only | Chat surface with ad-hoc, case-context, and workflow-kickoff modes (section 6a) |
+| Environment-wide timeline to pinpoint when problems started | Only case-scoped timelines | Activity timeline strip on the queue (section 6) |
+| 50+ turnkey integrations | By design: Holmes toolsets give us the subset the operator actually uses | No change - breadth is Robusta's business, not ours |
+
+What we deliberately do **not** copy:
+
+- **Auto-close and escalate-only-when-necessary.** Robusta auto-closes
+  duplicate alerts and escalates selectively. Our framework mandates
+  human-in-command for anything case-level; we auto-suppress only at the
+  signal layer (dedup/burst/grouping), never auto-close a case.
+- **SaaS control plane.** Robusta's platform is their cloud; our system must
+  run air-gapped, so everything stays self-hosted with adapter seams.
+
+Where we are ahead: explicit hypothesis board with refuted-branch
+visibility, citation-verified artifacts with a dedicated checker node,
+two-gate HITL with signed decisions and outcome previews, per-agent budget
+envelopes with a governance surface, and first-class DevSecOps
+pipeline-failure cases across both GitHub and GitLab.

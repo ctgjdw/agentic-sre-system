@@ -197,7 +197,7 @@
   <h2>Primary workflow</h2>
   <p class="lead">One case, end to end - the same pipeline serves both case kinds: production incidents (Grafana alerts, Telegram reports) and CI/CD pipeline failures (GitHub Actions, GitLab CI). The engineer touches the flow at the two dashed gates; everything else is observable but hands-off. The same gates are mirrored in Telegram so approval never requires opening the console.</p>
   <div class="flow">
-    <div class="step"><b>Signal</b><span>Grafana alert, Telegram report, or failed CI pipeline (GitHub / GitLab)</span></div>
+    <div class="step"><b>Signal</b><span>Grafana alert, Telegram report, failed CI pipeline (GitHub / GitLab), or chat kickoff</span></div>
     <div class="arrow">-&gt;</div>
     <div class="step"><b>Triage</b><span>Severity, dedup, hypotheses seeded. Ack posted to Telegram</span></div>
     <div class="arrow">-&gt;</div>
@@ -223,6 +223,7 @@
     <tr><td class="mono">/cases/:id</td><td>Case detail</td><td>The living incident document: live ledger, hypothesis board, evidence. Where trust is built.</td></tr>
     <tr><td class="mono">/cases/:id/artifact/:kind</td><td>Artifact review</td><td>Read the RCA or runbook, verify citations, decide. The approval moment.</td></tr>
     <tr><td class="mono">/governance</td><td>Governance</td><td>Budgets, permissions, suppression stats, audit trail, global pause.</td></tr>
+    <tr><td class="mono">/chat</td><td>Chat</td><td>Ask anything about the environment, chat about a case, or kickstart a full investigation from a conversation.</td></tr>
   </table>
 </section>
 
@@ -245,6 +246,10 @@
         <span class="grow"></span>
         <span class="wf-box ghost">search cases</span>
         <span class="wf-pill">severity: all</span>
+      </div>
+      <div class="wf-bar" style="gap: 4px;">
+        <span class="mono dim" style="flex:none;">24h</span>
+        <span class="wf-box ghost grow" style="white-space:normal; text-align:center;">environment activity timeline - signal density sparkline, case-open markers, chaos/deploy annotations</span> <span class="n">10</span>
       </div>
 
       <div class="case-row attn">
@@ -321,6 +326,7 @@
     <li><span class="n">7</span><span><b>Source is first-class</b>: alert-born and human-reported cases share one queue, per the framework's single-intake principle.</span></li>
     <li><span class="n">8</span><span><b>Pipeline-failure cases live in the same queue</b> with a kind badge instead of a severity stripe: same lifecycle, same gates, different evidence workers (ci + changes). Sources: GitHub Actions and GitLab CI.</span></li>
     <li><span class="n">9</span><span><b>Failure classification is a visible, revisable label</b> (code / test / config / dependency / infra-runner / flaky / permissions), set at triage and updated by synthesis - the trailing "?" marks low confidence.</span></li>
+    <li><span class="n">10</span><span><b>Environment activity timeline</b> (adopted from Robusta): signal density over the last 24h with case-open markers and deploy/chaos annotations, so "when did this start" and alert storms read at a glance. Correlation-grouped signals render as one thick mark, not many thin ones.</span></li>
   </ul>
 </section>
 
@@ -590,6 +596,67 @@
 </section>
 
 <section>
+  <h2>Screen 5 - Chat (Ask the team)</h2>
+  <p class="lead">Modeled on Robusta's "Ask Holmes": ad-hoc questions grounded in the live environment, case-context conversations, and the ability to promote any thread into a full gated investigation. Same evidence receipts and tool-ledger components as the case detail - the chat is a lens on the same system, not a separate toy.</p>
+  <div class="frame-wrap">
+    <div class="frame">
+      <div class="wf-bar">
+        <span class="wf-box">CHAT</span>
+        <span class="wf-pill">context: none</span> <span class="n">1</span>
+        <span class="grow"></span>
+        <span class="mono dim">thread budget: $0.14 / $1.00 today</span> <span class="n">2</span>
+      </div>
+      <div class="panes">
+        <div class="pane" style="width: 24%;">
+          <h4>Threads</h4>
+          <div class="ev"><span class="dim">Why is Keycloak slow right now?</span><div class="mono dim">today 14:31</div></div>
+          <div class="ev"><span class="dim">What changed in spectre today?</span><div class="mono dim">today 11:02 · <span style="color:var(--red)">CASE-0143</span></div> <span class="n">3</span></div>
+          <div class="ev"><span class="dim">OpenSearch disk usage trend</span><div class="mono dim">yesterday</div></div>
+          <div class="wf-box ghost" style="margin-top:10px;">+ New thread</div>
+        </div>
+        <div class="pane grow" style="display:flex; flex-direction:column;">
+          <div style="flex:1;">
+            <div class="bubble user" style="margin-left:auto; margin-bottom:10px;"><div class="who">ALEX · 14:31</div>Why is Keycloak slow right now?</div>
+            <div class="bubble" style="max-width:100%;">
+              <div class="who">SRE TEAM · streaming</div>
+              <div class="ledger-item" style="margin:6px 0;">
+                <div class="tool">holmes:prometheus · keycloak_request_duration p95 <span class="grow"></span>done</div>
+                <div class="tool">holmes:docker · keycloak container stats <span class="grow"></span>done</div> <span class="n">4</span>
+                <div class="tool">holmes:loki · keycloak WARN/ERROR last 30m <span class="grow"></span>running</div>
+              </div>
+              <div class="wf-line w80"></div>
+              <div class="wf-line w60"></div>
+              <span class="dim">Keycloak p95 is 4x baseline since 14:05. The container is healthy; latency correlates with a spike in admin API calls from admin-server <span class="cite">E1</span> <span class="cite">E2</span>...</span>
+              <div class="btn-row" style="display:flex; gap:6px; margin-top:10px;">
+                <span class="btn">Investigate properly</span> <span class="n">5</span>
+                <span class="btn" style="border-color:var(--line); color:var(--ink-2);">Ask follow-up</span>
+              </div>
+            </div>
+          </div>
+          <div class="wf-bar" style="border-top:1px solid var(--line-2); border-bottom:none;">
+            <span class="wf-box ghost grow">Ask about your environment...</span>
+            <span class="wf-pill">attach case</span> <span class="n">6</span>
+          </div>
+        </div>
+      </div>
+      <div class="approve-bar">
+        <span class="mono" style="color: var(--red);">Promote preview</span>
+        <span class="dim" style="font-size:12px;">"Investigate properly" creates CASE-0144 (SEV-3 proposed, kind: incident) with this thread attached as context, and runs the full gated workflow. Nothing is investigated beyond read-only queries until triage runs.</span> <span class="n">7</span>
+      </div>
+    </div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span><b>Context chip</b> states what the thread is grounded in: none (environment-wide), or a case/artifact. "Ask about this" on any case opens a thread with that case's record preloaded.</span></li>
+    <li><span class="n">2</span><span><b>Chat is budget-capped per thread per day</b>, visible in place - same cost-discipline as everywhere else.</span></li>
+    <li><span class="n">3</span><span><b>Threads that spawned cases stay cross-linked</b>; the case's phase transitions post back into the thread.</span></li>
+    <li><span class="n">4</span><span><b>The same tool-ledger component</b> renders Holmes's streamed tool executions inline; answers carry the same evidence citations as artifacts. One trust model across the product.</span></li>
+    <li><span class="n">5</span><span><b>Workflow kickoff</b>: any answer can be escalated into a real case. The chat answer is a quick read; the case is the governed artifact with hypothesis board, gates, and audit.</span></li>
+    <li><span class="n">6</span><span><b>Attach case</b> switches an existing thread's grounding mid-conversation.</span></li>
+    <li><span class="n">7</span><span><b>Promotion shows an outcome preview</b> (title, severity, kind, attached context) before creating anything - consistent with the approval UX. Chat can never approve gates or publish; decisions stay on the approval surfaces.</span></li>
+  </ul>
+</section>
+
+<section>
   <h2>Telegram companion flow</h2>
   <p class="lead">Telegram is the notification and lightweight-decision surface; the console is the verification surface. Every message deep-links to the corresponding console view.</p>
   <div class="frame-wrap">
@@ -654,7 +721,8 @@
     Mantlr, <a href="https://mantlr.com/blog/designing-for-ai-agents-ux-patterns-2026">Designing for AI agents: 10 UX patterns</a> ·
     HatchWorks, <a href="https://hatchworks.com/blog/ai-agents/agent-ux-patterns/">Agent UX patterns</a> ·
     incident.io, <a href="https://incident.io/ai-sre">AI SRE</a> ·
-    HolmesGPT, <a href="https://holmesgpt.dev/latest/why-holmesgpt/">Why HolmesGPT</a>
+    HolmesGPT, <a href="https://holmesgpt.dev/latest/why-holmesgpt/">Why HolmesGPT</a> ·
+    Robusta, <a href="https://home.robusta.dev/">The AI SRE that gets smarter with every incident</a> and <a href="https://docs.robusta.dev/master/">docs</a>
   </p>
 </section>
 </main>
