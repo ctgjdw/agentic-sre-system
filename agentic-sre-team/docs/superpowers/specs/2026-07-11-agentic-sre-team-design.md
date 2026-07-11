@@ -10,13 +10,25 @@
 
 ## 1. What this is
 
-A production-grade agentic system that acts as a functional SRE team for
-incident response. It ingests events (Grafana alerts, human reports via
-Telegram), triages them, runs a hypothesis-driven root cause analysis pulling
-evidence from code, the observability layer (Grafana Cloud / LGTM), and the
-infrastructure layer (Docker, optionally Kubernetes), and proposes fixes as
-runbook artifacts. Humans approve every published artifact; the system never
-executes state-changing actions.
+A production-grade agentic system that acts as a functional SRE/DevSecOps
+team. It handles two case kinds through one pipeline:
+
+1. **Incidents** - ingests events (Grafana alerts, human reports via
+   Telegram), triages them, runs a hypothesis-driven root cause analysis
+   pulling evidence from code, the observability layer (Grafana Cloud /
+   LGTM), and the infrastructure layer (Docker, optionally Kubernetes), and
+   proposes fixes as runbook artifacts.
+2. **Pipeline failures (DevSecOps)** - ingests failed CI/CD pipeline events
+   from GitHub Actions and GitLab CI, investigates (job logs, pipeline
+   config, triggering diff, run history), classifies the failure (code /
+   test / config / dependency / infra-runner / flaky / permissions), produces
+   an RCA, and proposes fixes as runbook artifacts with concrete patches.
+
+Source code and IaC live on GitHub and GitLab; both are supported behind one
+SCM adapter interface. Humans approve every published artifact. Agents never
+execute state-changing actions; the only write the system can perform at all
+is opening a draft MR/PR for an approved fix, and only after explicit human
+approval with the feature enabled (see the remediate node).
 
 Deployment target for v1: the operator's local Docker environment, using
 Grafana Cloud for observability and Google Vertex AI for models. The
@@ -30,6 +42,9 @@ behind a swappable adapter.
 - Prove the full loop locally: chaos event -> Grafana Cloud alert -> triage ->
   parallel evidence gathering -> evidence-cited RCA -> runbook draft -> human
   approval -> published to Telegram and visible in the ops UI.
+- Prove the DevSecOps loop: failed GitHub Actions / GitLab CI pipeline ->
+  triage + failure classification -> RCA citing job logs, config, and diff ->
+  fix proposal (runbook + patch) -> human approval -> published.
 - Honor the framework's governance pillars: human-in-command, deterministic
   routing, budgets, permission manifests, append-only audit.
 - Modern agentic UI: live-streaming investigation timeline, hypothesis board,
@@ -62,6 +77,11 @@ Design decisions below trace to:
 - **Anthropic multi-agent lessons**: orchestrator-worker with parallel
   subagents only where work decomposes; effort scaled to complexity;
   a separate cheap citation-verification pass.
+- **GitLab Duo Root Cause Analysis / Fix Pipeline flow**: pipeline-failure
+  RCA follows summarize -> analyze -> propose-fix over four evidence sources
+  (failed job logs with exit codes, pipeline config, merge-request diff,
+  repository contents); run history distinguishes flaky from deterministic
+  failures.
 
 ## 3. Architecture
 
@@ -93,6 +113,13 @@ checkpointed in Postgres, resumable across restarts.
 3. **Telegram reports** - bot via long polling. Messages in the configured
    group/DM become human-report signals. The bot also carries outbound
    notifications and approval buttons.
+4. **Pipeline failures** - GitHub `workflow_run` webhooks (conclusion:
+   failure) and GitLab pipeline-event webhooks (status: failed), both
+   signature-verified, for environments where the SCM can reach the gateway;
+   plus a poller against the GitHub Actions / GitLab pipelines APIs for
+   configured repositories (default for local laptops). Normalized by the
+   SCM adapter into the same `Signal` envelope with `kind:
+   pipeline_failure`.
 
 All intake normalizes to a `Signal` envelope (source, reporter, received_at,
 payload, fingerprint) per the framework spec, then passes noise control:
@@ -143,9 +170,20 @@ rounds).
 - *infra*: curated read-only Docker tools (list/inspect/logs/stats/events)
   over the mounted socket; optional kubectl read tools when a kubeconfig is
   mounted.
-- *changes/code*: git log / diff of mounted target repos, deploy/docker
-  events, ripgrep code search, file reads. Always runs - most incidents are
-  change-induced.
+- *changes/code*: recent commits, diffs, merged MRs/PRs, and code search via
+  the SCM adapters (GitHub + GitLab) and mounted local repos; deploy/docker
+  events. Always runs - most incidents are change-induced.
+- *ci* (pipeline-failure cases): failed job logs with exit codes, pipeline
+  config (workflow YAML / .gitlab-ci.yml), the triggering diff, and run
+  history of the same job across recent commits and retries (flaky
+  detection), via the SCM adapters.
+
+**Case kinds route to different worker sets.** Incident cases fan out to
+metrics / logs / infra / changes. Pipeline-failure cases run ci + changes by
+default, adding infra only when evidence points at runners or registries.
+Triage classifies pipeline failures into: code, test, config, dependency,
+infra-runner, flaky, permissions - and the classification is a field on the
+case, revisable by synthesis.
 
 Each worker is a bounded tool-loop that must attach every tool result as an
 `Evidence` record (query, raw result excerpt, source link, timestamp, worker,
@@ -176,7 +214,13 @@ Original and edited artifact versions are both stored.
 
 **remediate** (frontier tier). Drafts the fix as a runbook artifact:
 pre-checks, steps (commands, config diffs, manifests), post-checks, rollback
-plan, risk notes. Never executes anything - no write tools are bound.
+plan, risk notes. For pipeline-failure cases the runbook includes a concrete
+patch (workflow YAML / .gitlab-ci.yml / code diff). Never executes anything
+during drafting - no write tools are bound to the drafting node. One
+config-gated exception exists at publish time: when `scm_draft_mr` is
+enabled, gate-2 approval may additionally push the patch to a new branch and
+open a **draft** MR/PR (never merged, never to a protected branch), matching
+the framework's Remediation Engineer contract. Off by default.
 
 **publish + close**. Posts approved artifacts to Telegram, indexes the
 approved runbook into the runbook index (the value loop), closes the case.
@@ -190,11 +234,13 @@ to the audit table (model id, prompt hash, tool args, response hash, latency).
 
 ## 5. Data model and API
 
-Postgres tables: `cases` (status, severity, fingerprint, thread_id, budget
-spend), `signals`, `hypotheses`, `evidence`, `artifacts` (kind rca|runbook,
-version, raw + edited body, verification result), `approvals` (decision, who,
-when, diff), `audit_events` (append-only; insert-only DB role), `runbooks`
-(index corpus + embeddings), plus LangGraph checkpoint tables.
+Postgres tables: `cases` (kind incident|pipeline_failure, status, severity,
+failure_class for pipeline cases, fingerprint, thread_id, budget spend),
+`signals`, `hypotheses`, `evidence`, `artifacts` (kind rca|runbook, version,
+raw + edited body, verification result), `approvals` (decision, who, when,
+diff), `audit_events` (append-only; insert-only DB role), `runbooks` (index
+corpus + embeddings), `repos` (watched repositories: provider github|gitlab,
+slug, credentials reference, poll state), plus LangGraph checkpoint tables.
 
 API (FastAPI):
 
@@ -258,7 +304,18 @@ Tool groups, HolmesGPT-style, each config-gated and read-only:
   kubeconfig is mounted.
 - **code** - ripgrep search, file read, git log/blame/diff over read-only
   mounted target repos (v1: the SUT's own source).
+- **scm** - a unified `ScmProvider` interface with GitHub and GitLab
+  implementations (REST APIs, token auth): commits, diffs, file contents,
+  code search, MR/PR metadata. Read-only in the tool registry.
+- **ci** - pipeline surface of the same adapters: workflow runs / pipelines,
+  failed job logs, pipeline config retrieval, job run history. Read-only.
 - **runbooks** - semantic search over the runbook index.
+
+The single write capability in the system - branch push + draft MR/PR
+creation for approved fixes - is not a registered agent tool at all. It is a
+gateway-side publish action that runs only on gate-2 approval with
+`scm_draft_mr` enabled, using a separate credential scoped to branch
+creation.
 
 Per-agent permission manifests (YAML in git) bind tool groups to nodes at
 startup, default-deny. No write-capable tool exists in the codebase's tool
@@ -283,6 +340,15 @@ RCA with citations reaches gate 1 -> approve in Telegram -> runbook reaches
 gate 2 -> approve in UI -> both artifacts in Telegram, case closed. Target
 under ~5 minutes end to end.
 
+DevSecOps demo: the SUT repo lives on GitHub with a small CI workflow (lint +
+tests + docker build). `make chaos-ci` pushes a branch with a seeded failure
+(dependency pin typo or failing test) via workflow_dispatch -> the poller
+picks up the failed run -> pipeline-failure case opens, classified -> RCA
+cites the job log lines, config, and diff -> runbook with patch reaches gate
+2 -> approval (optionally opening a draft PR when `scm_draft_mr` is on). A
+GitLab-hosted mirror of the same flow is validated with the GitLab adapter
+against gitlab.com.
+
 ## 10. Error handling
 
 - Gateway restart mid-case: thread resumes from the Postgres checkpoint.
@@ -300,8 +366,12 @@ under ~5 minutes end to end.
 - **Unit**: intake normalization, noise control (dedup/debounce/burst), HMAC
   verification, model factory, permission manifest loading, budget enforcer.
 - **Graph**: full case-graph runs with a scripted fake chat model and
-  recorded tool fixtures; asserts hypothesis-board transitions, interrupt
-  placement, citation verification, budget halt.
+  recorded tool fixtures - one incident scenario and one pipeline-failure
+  scenario per SCM provider; asserts hypothesis-board transitions, worker
+  routing by case kind, failure classification, interrupt placement,
+  citation verification, budget halt.
+- **SCM adapters**: contract tests against recorded GitHub/GitLab API
+  fixtures so both providers satisfy the same `ScmProvider` behavior.
 - **API/UI**: FastAPI TestClient for REST/SSE contract; Vitest + Testing
   Library for UI components; one Playwright smoke over queue -> detail ->
   approve.

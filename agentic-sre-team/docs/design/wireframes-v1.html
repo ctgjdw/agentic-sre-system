@@ -195,13 +195,13 @@
 
 <section>
   <h2>Primary workflow</h2>
-  <p class="lead">One incident, end to end. The engineer touches the flow at the two dashed gates; everything else is observable but hands-off. The same gates are mirrored in Telegram so approval never requires opening the console.</p>
+  <p class="lead">One case, end to end - the same pipeline serves both case kinds: production incidents (Grafana alerts, Telegram reports) and CI/CD pipeline failures (GitHub Actions, GitLab CI). The engineer touches the flow at the two dashed gates; everything else is observable but hands-off. The same gates are mirrored in Telegram so approval never requires opening the console.</p>
   <div class="flow">
-    <div class="step"><b>Signal</b><span>Grafana alert or Telegram report</span></div>
+    <div class="step"><b>Signal</b><span>Grafana alert, Telegram report, or failed CI pipeline (GitHub / GitLab)</span></div>
     <div class="arrow">-&gt;</div>
     <div class="step"><b>Triage</b><span>Severity, dedup, hypotheses seeded. Ack posted to Telegram</span></div>
     <div class="arrow">-&gt;</div>
-    <div class="step"><b>Investigate</b><span>Parallel evidence workers: metrics, logs, infra, changes</span></div>
+    <div class="step"><b>Investigate</b><span>Workers by case kind: metrics, logs, infra, changes - or ci + changes for pipeline failures</span></div>
     <div class="arrow">-&gt;</div>
     <div class="step"><b>RCA draft</b><span>Causal chain, mitigation first, citations verified</span></div>
     <div class="arrow">-&gt;</div>
@@ -286,6 +286,19 @@
       </div>
       <div class="case-row">
         <span class="wf-stripe" style="background: var(--line);"></span>
+        <span class="mono dim">CASE-0139</span>
+        <span class="title">CI failing: test job on main after MR !412 (payments-api)</span>
+        <span class="wf-pill">PIPELINE</span> <span class="n">8</span>
+        <span class="wf-pill">class: flaky?</span> <span class="n">9</span>
+        <span class="wf-pill">Investigating</span>
+        <span class="mono dim">gitlab</span>
+        <span class="grow"></span>
+        <span class="mono dim">1m elapsed</span>
+        <span class="mono dim">$0.09</span>
+        <span class="wf-box ghost">Watch</span>
+      </div>
+      <div class="case-row">
+        <span class="wf-stripe" style="background: var(--line);"></span>
         <span class="mono dim">CASE-0140</span>
         <span class="title">Report from @minli: checkout feels slow since noon</span>
         <span class="wf-pill">SEV-4</span>
@@ -306,6 +319,8 @@
     <li><span class="n">5</span><span><b>Per-case spend</b> on every row keeps the cost-discipline pillar visible where work happens, not buried in a report.</span></li>
     <li><span class="n">6</span><span><b>Live indicator</b> marks cases with an agent actively streaming; the only animated element on the page.</span></li>
     <li><span class="n">7</span><span><b>Source is first-class</b>: alert-born and human-reported cases share one queue, per the framework's single-intake principle.</span></li>
+    <li><span class="n">8</span><span><b>Pipeline-failure cases live in the same queue</b> with a kind badge instead of a severity stripe: same lifecycle, same gates, different evidence workers (ci + changes). Sources: GitHub Actions and GitLab CI.</span></li>
+    <li><span class="n">9</span><span><b>Failure classification is a visible, revisable label</b> (code / test / config / dependency / infra-runner / flaky / permissions), set at triage and updated by synthesis - the trailing "?" marks low confidence.</span></li>
   </ul>
 </section>
 
@@ -495,6 +510,12 @@
     <li><span class="n">8</span><span><b>Approve with edits</b> opens an inline diff editor; both versions are stored and the diff is attached to the approval record.</span></li>
     <li><span class="n">9</span><span><b>Outcome preview</b> in plain words next to the buttons. States what approval publishes and reassures what it cannot do.</span></li>
     <li><span class="n">10</span><span><b>Reviewer identity</b> shown at the point of decision; the approval is bound to the case in the audit log.</span></li>
+  </ul>
+  <h3>Pipeline-failure variant of this screen</h3>
+  <ul class="notes">
+    <li><span class="n">a</span><span><b>Header adds the failure classification</b> (e.g. "class: dependency") next to the verification badge; evidence sources are job-log excerpts, the pipeline config, and the triggering diff instead of telemetry.</span></li>
+    <li><span class="n">b</span><span><b>The runbook leads with a concrete patch</b> (workflow YAML or code diff) rendered as a diff block, followed by the usual pre-checks, steps, post-checks, and rollback.</span></li>
+    <li><span class="n">c</span><span><b>Gate-2 outcome preview changes accordingly</b>: "Approving publishes the runbook to Telegram and opens a draft PR on payments-api (branch fix/CASE-0139). The draft is never merged automatically." The draft MR/PR step only appears when the operator has enabled it.</span></li>
   </ul>
 </section>
 
