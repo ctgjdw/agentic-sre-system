@@ -250,7 +250,7 @@
       <div class="case-row attn">
         <span class="wf-stripe"></span>
         <span class="mono dim">CASE-0142</span>
-        <span class="title">Error rate spike on sut-api /posts</span>
+        <span class="title">Error rate spike on admin-server /api/v1/users</span>
         <span class="wf-pill">SEV-2</span>
         <span class="wf-pill fill">RCA awaiting review</span> <span class="n">4</span>
         <span class="mono dim">grafana</span>
@@ -262,7 +262,7 @@
       <div class="case-row attn">
         <span class="wf-stripe"></span>
         <span class="mono dim">CASE-0141</span>
-        <span class="title">DB connections exhausted after deploy 4f2c1</span>
+        <span class="title">Keycloak login failures after keycloak-db restart</span>
         <span class="wf-pill">SEV-1</span>
         <span class="wf-pill fill">Runbook awaiting review</span>
         <span class="mono dim">grafana</span>
@@ -274,7 +274,7 @@
       <div class="case-row">
         <span class="wf-stripe" style="background: var(--line);"></span>
         <span class="mono dim">CASE-0143</span>
-        <span class="title">p95 latency climbing on /posts?limit=50</span>
+        <span class="title">p95 latency climbing on admin-server user listing</span>
         <span class="wf-pill">SEV-3</span>
         <span class="wf-pill">Investigating</span>
         <span class="mono" style="color: var(--red);">● live</span> <span class="n">6</span>
@@ -287,11 +287,11 @@
       <div class="case-row">
         <span class="wf-stripe" style="background: var(--line);"></span>
         <span class="mono dim">CASE-0139</span>
-        <span class="title">CI failing: test job on main after MR !412 (payments-api)</span>
+        <span class="title">CI failing: test job on main after PR #212 (spectre ci.yml)</span>
         <span class="wf-pill">PIPELINE</span> <span class="n">8</span>
         <span class="wf-pill">class: flaky?</span> <span class="n">9</span>
         <span class="wf-pill">Investigating</span>
-        <span class="mono dim">gitlab</span>
+        <span class="mono dim">github</span>
         <span class="grow"></span>
         <span class="mono dim">1m elapsed</span>
         <span class="mono dim">$0.09</span>
@@ -300,7 +300,7 @@
       <div class="case-row">
         <span class="wf-stripe" style="background: var(--line);"></span>
         <span class="mono dim">CASE-0140</span>
-        <span class="title">Report from @minli: checkout feels slow since noon</span>
+        <span class="title">Report from @minli: admin console feels slow since noon</span>
         <span class="wf-pill">SEV-4</span>
         <span class="wf-pill">Triaging</span>
         <span class="mono dim">telegram</span> <span class="n">7</span>
@@ -331,7 +331,7 @@
     <div class="frame">
       <div class="wf-bar">
         <span class="mono dim">CASE-0143</span>
-        <span class="title" style="color: var(--ink); font-size: 13px;">p95 latency climbing on /posts?limit=50</span>
+        <span class="title" style="color: var(--ink); font-size: 13px;">p95 latency climbing on admin-server user listing</span>
         <span class="wf-pill">SEV-3</span>
         <span class="wf-pill">Investigating · round 1 of 2</span> <span class="n">1</span>
         <span class="grow"></span>
@@ -352,37 +352,37 @@
           </div>
           <div class="ledger-item">
             <b>Metrics worker · done · 41s</b>
-            <div class="tool">query_prometheus · p95 by handler <span class="grow"></span>+E1</div>
-            <div class="tool">query_prometheus · db conn pool <span class="grow"></span>+E2</div> <span class="n">5</span>
+            <div class="tool">holmes:prometheus · p95 by route via Kong <span class="grow"></span>+E1</div>
+            <div class="tool">holmes:prometheus · keycloak-db conn pool <span class="grow"></span>+E2</div> <span class="n">5</span>
           </div>
           <div class="ledger-item">
             <b>Changes worker · done · 28s</b>
-            <div class="tool">git_log · sut repo, last 24h <span class="grow"></span>+E4</div>
+            <div class="tool">holmes:github · spectre commits, last 24h <span class="grow"></span>+E4</div>
           </div>
           <div class="ledger-item live">
             <b>Logs worker · running</b>
-            <span class="dim">Checking slow-query log patterns for H2...</span> <span class="n">6</span>
-            <div class="tool">query_loki · duration&gt;500ms ...</div>
+            <span class="dim">Checking slow Admin API call patterns for H2...</span> <span class="n">6</span>
+            <div class="tool">holmes:loki · admin-server duration&gt;500ms ...</div>
           </div>
         </div>
         <div class="pane grow">
           <h4>Hypothesis board <span class="n">7</span></h4>
           <div class="hypo">
             <div class="head"><span class="wf-pill fill">H2 · SUPPORTED</span><span class="mono dim">confidence 0.78</span></div>
-            <span class="dim">Unindexed query introduced in deploy 4f2c1 causes sequential scan on posts table under load.</span>
+            <span class="dim">N+1 Keycloak Admin API calls introduced in PR #212 inflate group listing latency under load.</span>
             <div class="conf"><i style="width:78%"></i></div>
             <div class="mono dim" style="margin-top:6px;">evidence: 3 for · 0 against · E2 E4 E5</div> <span class="n">8</span>
           </div>
           <div class="hypo">
             <div class="head"><span class="wf-pill">H1 · OPEN</span><span class="mono dim">confidence 0.31</span></div>
-            <span class="dim">Connection pool exhaustion from traffic increase.</span>
+            <span class="dim">keycloak-db connection pool exhaustion from traffic increase.</span>
             <div class="conf"><i style="width:31%"></i></div>
             <div class="mono dim" style="margin-top:6px;">evidence: 1 for · 1 against · E1 E3</div>
           </div>
           <div class="hypo" style="opacity:.55;">
             <div class="head"><span class="wf-pill">H3 · REFUTED</span><span class="mono dim">confidence 0.05</span></div>
-            <span class="dim">Host CPU saturation on the docker node.</span> <span class="n">9</span>
-            <div class="mono dim" style="margin-top:6px;">refuted by E1: node CPU flat at 22%</div>
+            <span class="dim">Host CPU saturation on the Docker host.</span> <span class="n">9</span>
+            <div class="mono dim" style="margin-top:6px;">refuted by E1: host CPU flat at 22%</div>
           </div>
           <div class="wf-box ghost" style="margin-top:8px; display:inline-block;">+ H4 collapsed</div>
         </div>
@@ -390,18 +390,18 @@
           <h4>Evidence <span class="n">10</span></h4>
           <div class="ev">
             <div class="src"><span class="wf-pill fill">E2</span><span class="mono dim">prometheus · 14:02:11</span></div>
-            <span class="dim">pg_stat_activity active connections 5x baseline from 13:55</span>
+            <span class="dim">keycloak-db active connections 5x baseline from 13:55</span>
             <div class="wf-line w80"></div>
-            <div class="mono dim">query: pg_stat_activity_count{...} <span style="color:var(--red)">open in Grafana -&gt;</span></div> <span class="n">11</span>
+            <div class="mono dim">query: pg_stat_activity_count{db="keycloak"} <span style="color:var(--red)">open in Grafana -&gt;</span></div> <span class="n">11</span>
           </div>
           <div class="ev">
-            <div class="src"><span class="wf-pill fill">E4</span><span class="mono dim">git · 13:48:02</span></div>
-            <span class="dim">deploy 4f2c1 "feat: add sort by comment count" touches posts query builder</span>
-            <div class="mono dim">source: git log + diff excerpt</div>
+            <div class="src"><span class="wf-pill fill">E4</span><span class="mono dim">github · 13:48:02</span></div>
+            <span class="dim">PR #212 "feat: show role badges in group list" adds per-user Admin API call</span>
+            <div class="mono dim">source: holmes:github · PR diff excerpt</div>
           </div>
           <div class="ev">
             <div class="src"><span class="wf-pill fill">E5</span><span class="mono dim">loki · 14:04:40</span></div>
-            <span class="dim">slow query log: SELECT ... ORDER BY comment_count, 1.4s avg, no index</span>
+            <span class="dim">admin-server log: getGroupMembers x47 per request, 1.4s avg</span>
             <div class="wf-line w60"></div>
           </div>
         </div>
@@ -419,7 +419,7 @@
     <li><span class="n">2</span><span><b>Escalate to human</b> halts agent work and parks the case, preserving everything gathered. Recovery routing is a first-class action, not a failure mode.</span></li>
     <li><span class="n">3</span><span><b>Progress ledger</b>: one entry per graph node with model tier and duration. Streaming text appears in place.</span></li>
     <li><span class="n">4</span><span><b>Planning visibility</b>: the fan-out decision (which workers, why) is a ledger entry the human can read before results exist.</span></li>
-    <li><span class="n">5</span><span><b>Tool-use disclosure</b>: each tool call is a collapsed one-liner tagged with the evidence ID it produced. Expanding shows args and raw result.</span></li>
+    <li><span class="n">5</span><span><b>Tool-use disclosure</b>: each tool call is a collapsed one-liner tagged with the evidence ID it produced. Expanding shows args and raw result. Workers delegate evidence gathering to HolmesGPT; the <code>holmes:&lt;toolset&gt;</code> prefix names which of its toolsets ran (prometheus, loki, docker, github, gitlab, opensearch, postgres).</span></li>
     <li><span class="n">6</span><span><b>The live entry states its intent</b> ("checking slow-query patterns for H2"), not just activity. Reasoning transparency over spinners.</span></li>
     <li><span class="n">7</span><span><b>Hypothesis board is the centerpiece</b>, sorted by confidence. This is the "what do we believe right now" view that Bits AI and Traversal converge on.</span></li>
     <li><span class="n">8</span><span><b>Evidence chips on each hypothesis</b> cross-link to the evidence pane; for/against counts make disagreement visible instead of averaged away.</span></li>
@@ -438,7 +438,7 @@
     <div class="frame">
       <div class="wf-bar">
         <span class="mono dim">CASE-0142</span>
-        <span class="title" style="color: var(--ink); font-size:13px;">RCA v2 · Error rate spike on sut-api /posts</span>
+        <span class="title" style="color: var(--ink); font-size:13px;">RCA v2 · Error rate spike on admin-server /api/v1/users</span>
         <span class="wf-pill fill">citations verified 11/11</span> <span class="n">1</span>
         <span class="grow"></span>
         <span class="mono dim">drafted by frontier tier · claude-sonnet@vertex · $0.44</span> <span class="n">2</span>
@@ -449,16 +449,16 @@
             <b style="font-size:13px; color:var(--ink);">Immediate mitigation</b> <span class="n">3</span>
             <div class="wf-line w80"></div>
             <div class="wf-line w60"></div>
-            <span class="dim mono">rollback deploy 4f2c1 OR create index concurrently <span class="cite">E4</span> <span class="cite">E5</span></span>
+            <span class="dim mono">revert PR #212 OR feature-flag role badges off <span class="cite">E4</span> <span class="cite">E5</span></span>
           </div>
           <div class="doc-block">
             <b style="font-size:13px; color:var(--ink);">Root cause</b>
             <div class="causal"> <span class="n">4</span>
-              <span class="wf-box">deploy 4f2c1<br>new sort param</span><span class="mono dim">-&gt;</span>
-              <span class="wf-box">unindexed<br>ORDER BY</span><span class="mono dim">-&gt;</span>
-              <span class="wf-box">seq scan<br>1.4s avg <span class="cite">E5</span></span><span class="mono dim">-&gt;</span>
-              <span class="wf-box">pool saturation <span class="cite">E2</span></span><span class="mono dim">-&gt;</span>
-              <span class="wf-box">5xx on /posts <span class="cite">E1</span></span>
+              <span class="wf-box">PR #212<br>role badges</span><span class="mono dim">-&gt;</span>
+              <span class="wf-box">N+1 Admin<br>API calls</span><span class="mono dim">-&gt;</span>
+              <span class="wf-box">Keycloak latency<br>1.4s avg <span class="cite">E5</span></span><span class="mono dim">-&gt;</span>
+              <span class="wf-box">kc-db pool saturation <span class="cite">E2</span></span><span class="mono dim">-&gt;</span>
+              <span class="wf-box">5xx via Kong <span class="cite">E1</span></span>
             </div>
           </div>
           <div class="doc-block">
@@ -477,7 +477,7 @@
           <h4>Citation inspector <span class="n">6</span></h4>
           <div class="ev">
             <div class="src"><span class="wf-pill fill">E5</span><span class="mono dim">loki · 14:04</span></div>
-            <span class="dim">Selected claim: "seq scan 1.4s avg". Raw excerpt + query below.</span>
+            <span class="dim">Selected claim: "Keycloak latency 1.4s avg". Raw excerpt + query below.</span>
             <div class="wf-line w80"></div><div class="wf-line w60"></div>
             <div class="mono" style="color:var(--red);">open in Grafana -&gt;</div>
           </div>
@@ -515,7 +515,7 @@
   <ul class="notes">
     <li><span class="n">a</span><span><b>Header adds the failure classification</b> (e.g. "class: dependency") next to the verification badge; evidence sources are job-log excerpts, the pipeline config, and the triggering diff instead of telemetry.</span></li>
     <li><span class="n">b</span><span><b>The runbook leads with a concrete patch</b> (workflow YAML or code diff) rendered as a diff block, followed by the usual pre-checks, steps, post-checks, and rollback.</span></li>
-    <li><span class="n">c</span><span><b>Gate-2 outcome preview changes accordingly</b>: "Approving publishes the runbook to Telegram and opens a draft PR on payments-api (branch fix/CASE-0139). The draft is never merged automatically." The draft MR/PR step only appears when the operator has enabled it.</span></li>
+    <li><span class="n">c</span><span><b>Gate-2 outcome preview changes accordingly</b>: "Approving publishes the runbook to Telegram and opens a draft PR on spectre (branch fix/CASE-0139). The draft is never merged automatically." The draft MR/PR step only appears when the operator has enabled it.</span></li>
   </ul>
 </section>
 
@@ -594,10 +594,10 @@
   <p class="lead">Telegram is the notification and lightweight-decision surface; the console is the verification surface. Every message deep-links to the corresponding console view.</p>
   <div class="frame-wrap">
     <div class="tg">
-      <div class="bubble"><div class="who">SRE TEAM BOT · 14:02</div>Alert received: p95 latency on sut-api /posts. Opened CASE-0143, SEV-3 proposed. Investigating with 4 workers. <span class="mono dim">console link</span> <span class="n">1</span></div>
-      <div class="bubble"><div class="who">SRE TEAM BOT · 14:05</div>Early findings on CASE-0143: strongest hypothesis is an unindexed query from deploy 4f2c1 (confidence 0.78). Full RCA in ~2m. <span class="n">2</span></div>
+      <div class="bubble"><div class="who">SRE TEAM BOT · 14:02</div>Alert received: p95 latency on admin-server user listing. Opened CASE-0143, SEV-3 proposed. Investigating with 4 workers. <span class="mono dim">console link</span> <span class="n">1</span></div>
+      <div class="bubble"><div class="who">SRE TEAM BOT · 14:05</div>Early findings on CASE-0143: strongest hypothesis is an N+1 Admin API call pattern from PR #212 (confidence 0.78). Full RCA in ~2m. <span class="n">2</span></div>
       <div class="bubble">
-        <div class="who">SRE TEAM BOT · 14:07</div>RCA ready for review on CASE-0143. Mitigation: rollback 4f2c1 or add index. 11/11 citations verified.
+        <div class="who">SRE TEAM BOT · 14:07</div>RCA ready for review on CASE-0143. Mitigation: revert PR #212 or flag role badges off. 11/11 citations verified.
         <div class="btn-row"><span>Approve</span><span>Reject</span><span>Review in console</span></div> <span class="n">3</span>
       </div>
       <div class="bubble user"><div class="who">ALEX · 14:09</div>[taps Approve]</div>
@@ -653,7 +653,8 @@
     Traversal, <a href="https://www.traversal.com/blog/ai-for-sre-site-reliability-engineering-aisre">AI for SRE</a> ·
     Mantlr, <a href="https://mantlr.com/blog/designing-for-ai-agents-ux-patterns-2026">Designing for AI agents: 10 UX patterns</a> ·
     HatchWorks, <a href="https://hatchworks.com/blog/ai-agents/agent-ux-patterns/">Agent UX patterns</a> ·
-    incident.io, <a href="https://incident.io/ai-sre">AI SRE</a>
+    incident.io, <a href="https://incident.io/ai-sre">AI SRE</a> ·
+    HolmesGPT, <a href="https://holmesgpt.dev/latest/why-holmesgpt/">Why HolmesGPT</a>
   </p>
 </section>
 </main>

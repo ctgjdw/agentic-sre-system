@@ -31,10 +31,21 @@ is opening a draft MR/PR for an approved fix, and only after explicit human
 approval with the feature enabled (see the remediate node).
 
 Deployment target for v1: the operator's local Docker environment, using
-Grafana Cloud for observability and Google Vertex AI for models. The
-architecture is fully portable to an air-gapped on-prem environment by
-swapping adapters (LiteLLM/vLLM for models, self-hosted LGTM for
-observability, Mattermost for channels); every external dependency sits
+Grafana Cloud for observability and Google Vertex AI for models. The system
+under test is **Spectre** (`~/Code/spectre`), the operator's existing IAM
+admin console stack (Keycloak, Postgres, Express admin-server, React
+admin-ui, Kong, OpenSearch, Fluent Bit, Alloy shipping to Grafana Cloud,
+GitHub Actions CI) - already dockerized and instrumented; this project only
+adds chaos injection. Evidence gathering is powered by **HolmesGPT** (CNCF
+sandbox) running as a sidecar container, whose built-in toolsets cover the
+operator's integrations (Docker, OpenShift, GitHub, GitLab, Prometheus,
+Loki/Tempo/Grafana, OpenSearch, Postgres). Agent runs are traced to
+**LangSmith cloud** (free plan, env-gated).
+
+The architecture is fully portable to an air-gapped on-prem environment by
+swapping adapters (LiteLLM/vLLM for models - HolmesGPT is LiteLLM-based so
+the same swap covers it, self-hosted LGTM for observability, Mattermost for
+channels, tracing disabled or self-hosted); every external dependency sits
 behind a swappable adapter.
 
 ### Goals
@@ -73,7 +84,11 @@ Design decisions below trace to:
   read-only agentless integration; confidence scores with visible reasoning.
 - **HolmesGPT (CNCF) / OpenDerisk**: config-gated read-only toolsets (MCP
   supported); evidence-centric reasoning to reduce hallucination; causal
-  chain and timeline visualization.
+  chain and timeline visualization. HolmesGPT is adopted directly as the
+  evidence-gathering engine: its server mode exposes `/api/chat` with
+  per-request model selection, structured `response_format`, SSE
+  tool-execution events, and a complete `tool_calls` transcript per
+  response.
 - **Anthropic multi-agent lessons**: orchestrator-worker with parallel
   subagents only where work decomposes; effort scaled to complexity;
   a separate cheap citation-verification pass.
@@ -92,15 +107,30 @@ Docker Compose on a single host. Services:
 | `gateway` | Python 3.12, FastAPI, LangGraph 1.x, uv | Intake, noise control, case store, the case graph (library mode), REST + SSE API, Telegram bot (long polling), budget + audit |
 | `ui` | React 18 + Vite + TypeScript, served by nginx | Ops console |
 | `postgres` | postgres:16 | Case store + LangGraph checkpoints (AsyncPostgresSaver) |
-| `grafana-mcp` | `mcp/grafana` (streamable HTTP) | Observability tools against Grafana Cloud (PromQL, LogQL, alert rules, Sift) |
-| `sut` | Python FastAPI + OTel SDK | Demo "system under test": small posts API with chaos endpoints |
-| `sut-db` | postgres:16 | SUT database |
-| `alloy` | grafana/alloy | Ships SUT metrics + logs (and host/docker metrics) to Grafana Cloud |
-| `provision` | one-shot Python container | Creates Grafana Cloud alert rules + webhook contact point via HTTP API; idempotent |
+| `holmes` | HolmesGPT server (pinned image) | Evidence-gathering engine: HTTP `/api/chat` with SSE tool events; toolsets configured for Grafana Cloud (Prometheus/Loki/Tempo), Docker (read-only socket), GitHub, GitLab, OpenSearch, Postgres |
+| `provision` | one-shot Python container | Creates Grafana Cloud alert rules (matched to Spectre failure modes) + webhook contact point via HTTP API; idempotent |
+
+The system under test is not part of this compose stack: **Spectre runs from
+its own repo's `docker-compose.yml`**, unchanged except for the added chaos
+capability (section 9). Both stacks join a shared external Docker network so
+the Holmes docker toolset can observe Spectre's containers by name.
 
 The gateway runs LangGraph as a library inside FastAPI (no LangGraph
-Server, no LangSmith dependency). One incident case = one LangGraph thread,
-checkpointed in Postgres, resumable across restarts.
+Server). One case = one LangGraph thread, checkpointed in Postgres,
+resumable across restarts. **LangSmith tracing** (cloud free plan) is
+enabled via standard env vars (`LANGSMITH_TRACING`, `LANGSMITH_API_KEY`) and
+covers the whole LangGraph plane - every node, prompt, and token count per
+case. HolmesGPT's internal LLM loop is not LangSmith-traced; its complete
+tool-call transcript is captured into the case's evidence and audit records
+instead, so no investigative step is unrecorded. Tracing is optional and off
+in air-gapped profiles.
+
+**Why HolmesGPT as a sidecar (server mode) rather than the Python SDK:**
+dependency isolation (Holmes ships its own LiteLLM-based stack), pinned
+independent upgrades, per-request `model` selection that preserves the tier
+config, and SSE tool events that relay directly into the live progress
+ledger. The SDK path would couple two heavy dependency trees inside the
+gateway for no functional gain.
 
 ### Intake paths
 
@@ -163,20 +193,34 @@ sequential worker chosen by signal type; medium/high -> parallel fan-out of
 all four workers via the `Send` API. Rounds are bounded (max 2 investigation
 rounds).
 
-**Evidence workers** (medium tier, one per domain, parallel):
+**Evidence workers** (medium tier, one per domain, parallel). Each worker is
+a thin LangGraph node that delegates to the **HolmesGPT sidecar** via
+`POST /api/chat`: a domain-scoped investigation prompt carrying the current
+hypothesis board, a `response_format` JSON schema for hypothesis-tagged
+findings, and the tier-appropriate `model`. Holmes runs the tool loop
+against its configured toolsets; the worker streams Holmes's SSE tool events
+into the case's live ledger and maps every `tool_calls` entry into an
+`Evidence` record (toolset, invocation, raw result excerpt, timestamp,
+hypothesis links). Worker domains and their Holmes toolsets:
 
-- *metrics*: PromQL via Grafana MCP; alert-rule context; dashboards.
-- *logs*: LogQL, log patterns, Sift error-pattern detection via Grafana MCP.
-- *infra*: curated read-only Docker tools (list/inspect/logs/stats/events)
-  over the mounted socket; optional kubectl read tools when a kubeconfig is
-  mounted.
-- *changes/code*: recent commits, diffs, merged MRs/PRs, and code search via
-  the SCM adapters (GitHub + GitLab) and mounted local repos; deploy/docker
-  events. Always runs - most incidents are change-induced.
+- *metrics*: Prometheus toolset against Grafana Cloud (PromQL, alert rules).
+- *logs*: Loki + OpenSearch toolsets (Spectre's audit and app logs land in
+  both Grafana Cloud Loki and local OpenSearch).
+- *infra*: Docker toolset over the read-only socket (Spectre's containers:
+  keycloak, admin-server, kong, opensearch, fluent-bit, alloy); OpenShift/
+  Kubernetes toolset available for the on-prem profile; Postgres toolset for
+  DB-level checks.
+- *changes/code*: GitHub + GitLab toolsets (recent commits, diffs, MRs/PRs,
+  file contents, code search). Always runs - most incidents are
+  change-induced.
 - *ci* (pipeline-failure cases): failed job logs with exit codes, pipeline
   config (workflow YAML / .gitlab-ci.yml), the triggering diff, and run
   history of the same job across recent commits and retries (flaky
-  detection), via the SCM adapters.
+  detection), via the GitHub/GitLab toolsets.
+
+Worker scoping is by prompt, not by per-request toolset gating; the set of
+toolsets Holmes may use at all is fixed in its config file (in git), which
+serves as the permission manifest for the evidence layer.
 
 **Case kinds route to different worker sets.** Incident cases fan out to
 metrics / logs / infra / changes. Pipeline-failure cases run ci + changes by
@@ -289,30 +333,40 @@ frontend decoupled from the runtime choice.
 
 Local profile: small/medium = Gemini 2.5 Flash, frontier = Claude Sonnet on
 Vertex. Air-gap profile: all tiers -> LiteLLM -> MiniMax on vLLM. Swapping is
-a config change only. The same adapter seam applies to channels (Telegram
-now, Mattermost later) and observability (Grafana Cloud now; on-prem LGTM
-exposes identical APIs and `mcp/grafana` works against both).
+a config change only.
+
+The same `models.yaml` drives HolmesGPT: it is LiteLLM-based and accepts a
+`model` per request, so evidence workers pass their tier's model string
+(e.g. `vertex_ai/gemini-2.5-flash`) with each call, and the air-gap swap
+covers Holmes with no extra work. The same adapter seam applies to channels
+(Telegram now, Mattermost later) and observability (Grafana Cloud now;
+on-prem LGTM exposes identical APIs and Holmes's toolsets work against
+both).
 
 ## 8. Tools and permissions
 
-Tool groups, HolmesGPT-style, each config-gated and read-only:
+The evidence layer is HolmesGPT's toolset registry, enabled per toolset in
+`config/holmes.yaml` (in git, version-pinned image). Enabled for the local
+profile: prometheus, grafana/loki, docker (read-only socket), github,
+gitlab, opensearch, postgres. The on-prem profile adds openshift/kubernetes
+and swaps Grafana Cloud endpoints for the self-hosted LGTM stack. All
+enabled toolsets are read-only; Holmes's tool-approval feature stays off
+because no write-capable toolset is enabled at all. This config file is the
+permission manifest for the evidence layer; changing it is a reviewed git
+change.
 
-- **observability** - loaded from the `grafana-mcp` container via
-  `langchain-mcp-adapters` (allowlist of tools; not the full server surface).
-- **docker** - curated wrappers over the read-only mounted socket.
-- **kubernetes** (optional) - kubectl get/describe/logs/events when a
-  kubeconfig is mounted.
-- **code** - ripgrep search, file read, git log/blame/diff over read-only
-  mounted target repos (v1: the SUT's own source).
-- **scm** - a unified `ScmProvider` interface with GitHub and GitLab
-  implementations (REST APIs, token auth): commits, diffs, file contents,
-  code search, MR/PR metadata. Read-only in the tool registry.
-- **ci** - pipeline surface of the same adapters: workflow runs / pipelines,
-  failed job logs, pipeline config retrieval, job run history. Read-only.
-- **runbooks** - semantic search over the runbook index.
+Gateway-side tool groups (bound to LangGraph nodes by per-agent YAML
+manifests, default-deny):
+
+- **runbooks** - semantic search over the runbook index (triage, synthesize,
+  remediate).
+- **scm intake/publish** - a unified `ScmProvider` interface with GitHub and
+  GitLab implementations, used by the intake poller/webhooks (pipeline
+  events, job metadata) and by publish actions. Not exposed to any LLM node
+  as a free tool.
 
 The single write capability in the system - branch push + draft MR/PR
-creation for approved fixes - is not a registered agent tool at all. It is a
+creation for approved fixes - is not an agent tool at all. It is a
 gateway-side publish action that runs only on gate-2 approval with
 `scm_draft_mr` enabled, using a separate credential scoped to branch
 creation.
@@ -321,33 +375,50 @@ Per-agent permission manifests (YAML in git) bind tool groups to nodes at
 startup, default-deny. No write-capable tool exists in the codebase's tool
 registry at all in v1.
 
-## 9. Demo target and chaos
+## 9. System under test: Spectre + chaos injection
 
-`sut`: a small FastAPI + Postgres "posts" API instrumented with the OTel SDK
-(metrics + structured logs). `alloy` scrapes/collects and ships to Grafana
-Cloud (Mimir + Loki), including docker/host metrics. Chaos endpoints on an
-internal-only port: `/chaos/cpu` (CPU burn), `/chaos/errors` (5xx storm),
-`/chaos/latency` (slow responses), `/chaos/db-down` (kill DB connectivity).
+The SUT is the operator's existing **Spectre** stack (`~/Code/spectre`):
+Keycloak 26.6 + Postgres, Express admin-server, React admin-ui, Kong edge
+gateway, OpenSearch audit store, Fluent Bit, and Alloy already shipping
+metrics/logs to Grafana Cloud. GitHub Actions CI (`ci.yml`,
+`container-scan.yml`, `security.yml`, `lint-workflows.yml`) already exists.
+Spectre stays deployed from its own compose file; this project contributes
+chaos capability only, in two layers:
 
-The `provision` one-shot creates matching Grafana Cloud alert rules (high
-CPU, error rate, p95 latency, DB availability) and the webhook contact point
-(when webhook mode is used). Makefile targets: `make up`, `make provision`,
-`make chaos-<mode>`, `make demo` (fires chaos, tails the case).
+1. **App-level chaos middleware in admin-server** (small PR to the Spectre
+   repo): an Express middleware mounted only when `CHAOS_ENABLED=true`
+   (default off, never in the production profile), controlled via an
+   internal-only endpoint. Modes: `error-storm` (inject 5xx on a percentage
+   of API responses), `latency` (delay responses), `cpu` (event-loop burn),
+   `memory` (heap growth). This exercises the code-level RCA path (the
+   agents should trace symptoms to the middleware's origin commit).
+2. **Docker-level chaos scripts in this repo** (no Spectre changes):
+   `scripts/chaos.sh` drives realistic infra failures - stop/pause
+   `keycloak` (login outage), stop `keycloak-db` (Keycloak degradation),
+   stop `opensearch` (audit pipeline backpressure through Fluent Bit), pause
+   `kong` (edge outage). These exercise the infra RCA path.
 
-Acceptance demo: `make chaos-errors` -> Grafana Cloud alert fires -> case
-opens with Telegram ack -> parallel investigation visible live in the UI ->
-RCA with citations reaches gate 1 -> approve in Telegram -> runbook reaches
-gate 2 -> approve in UI -> both artifacts in Telegram, case closed. Target
-under ~5 minutes end to end.
+The `provision` one-shot creates Grafana Cloud alert rules matched to
+Spectre's failure modes (admin-server error rate and p95 latency via Kong /
+OTel metrics, Keycloak availability, OpenSearch indexing lag, container-down
+signals from Alloy) plus the webhook contact point when webhook mode is
+used. Makefile targets: `make up`, `make provision`, `make chaos-<mode>`,
+`make demo`.
 
-DevSecOps demo: the SUT repo lives on GitHub with a small CI workflow (lint +
-tests + docker build). `make chaos-ci` pushes a branch with a seeded failure
-(dependency pin typo or failing test) via workflow_dispatch -> the poller
-picks up the failed run -> pipeline-failure case opens, classified -> RCA
-cites the job log lines, config, and diff -> runbook with patch reaches gate
-2 -> approval (optionally opening a draft PR when `scm_draft_mr` is on). A
-GitLab-hosted mirror of the same flow is validated with the GitLab adapter
-against gitlab.com.
+Acceptance demo: `make chaos-error-storm` -> Grafana Cloud alert fires ->
+case opens with Telegram ack -> parallel Holmes-backed investigation visible
+live in the UI -> RCA with citations reaches gate 1 -> approve in Telegram
+-> runbook reaches gate 2 -> approve in UI -> both artifacts in Telegram,
+case closed. Target under ~5 minutes end to end.
+
+DevSecOps demo: Spectre's GitHub Actions CI is the target. `make chaos-ci`
+pushes a branch with a seeded failure (dependency pin typo or failing Vitest
+case) -> the poller picks up the failed `ci.yml` run -> pipeline-failure
+case opens, classified -> RCA cites the job log lines, workflow config, and
+diff -> runbook with patch reaches gate 2 -> approval (optionally opening a
+draft PR when `scm_draft_mr` is on). The GitLab adapter is validated with
+contract tests plus a minimal mirror repo on gitlab.com running the same
+seeded-failure flow.
 
 ## 10. Error handling
 
@@ -358,18 +429,21 @@ against gitlab.com.
   never fatal to the case; workers proceed with partial evidence.
 - Poller / Telegram adapters: supervised asyncio tasks with exponential
   backoff and health exposed on `/healthz`.
-- MCP container unavailable: observability tool group degrades to disabled
-  with an operator-visible warning; investigation proceeds on other domains.
+- Holmes container unavailable or a toolset failing: the affected worker
+  records the failure as evidence-gathering degradation with an
+  operator-visible warning; investigation proceeds on other domains, and the
+  synthesize node factors the gap into confidence.
 
 ## 11. Testing
 
 - **Unit**: intake normalization, noise control (dedup/debounce/burst), HMAC
   verification, model factory, permission manifest loading, budget enforcer.
-- **Graph**: full case-graph runs with a scripted fake chat model and
-  recorded tool fixtures - one incident scenario and one pipeline-failure
+- **Graph**: full case-graph runs with a scripted fake chat model and a
+  **fake Holmes server** (recorded `/api/chat` responses with realistic
+  `tool_calls` transcripts) - one incident scenario and one pipeline-failure
   scenario per SCM provider; asserts hypothesis-board transitions, worker
-  routing by case kind, failure classification, interrupt placement,
-  citation verification, budget halt.
+  routing by case kind, evidence mapping from Holmes transcripts, failure
+  classification, interrupt placement, citation verification, budget halt.
 - **SCM adapters**: contract tests against recorded GitHub/GitLab API
   fixtures so both providers satisfy the same `ScmProvider` behavior.
 - **API/UI**: FastAPI TestClient for REST/SSE contract; Vitest + Testing
@@ -390,7 +464,13 @@ against gitlab.com.
   back to Gemini Pro a one-line config change.
 - **Token cost of parallel investigation**: bounded by effort scaling,
   round limits, and budget envelopes; governance page makes spend visible.
-- **`mcp/grafana` tool surface drift**: pinned image version + tool
-  allowlist.
+- **HolmesGPT coupling**: its toolset behavior and response schema can drift
+  across releases; mitigated by a pinned image, the fake-Holmes test
+  fixtures acting as a contract, and the thin-worker seam (workers only
+  depend on `/api/chat` + `tool_calls`, so replacing Holmes with native
+  workers later stays a bounded change).
+- **Split observability of agent runs**: LangSmith traces the LangGraph
+  plane but not Holmes internals; the case's evidence/audit records carry
+  the Holmes transcript, and deeper Holmes tracing is a later option.
 - Postmortem scribe and observability-engineer agents are the natural next
   slice after v1; the artifact and audit schemas already carry what they need.
