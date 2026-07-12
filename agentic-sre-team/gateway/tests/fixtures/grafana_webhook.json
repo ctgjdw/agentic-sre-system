@@ -1,0 +1,33 @@
+{
+  "receiver": "sre-gateway",
+  "status": "firing",
+  "orgId": 1,
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "AdminServerHighErrorRate",
+        "service": "admin-server",
+        "component": "api",
+        "severity": "sev2"
+      },
+      "annotations": {
+        "summary": "Error rate spike on admin-server /api/v1/users",
+        "description": "5xx ratio above 5% for 2m"
+      },
+      "startsAt": "2026-07-11T14:02:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "https://example.grafana.net/alerting/grafana/x/view",
+      "fingerprint": "c4a2f1d9e8b7a3f0"
+    }
+  ],
+  "groupLabels": {"alertname": "AdminServerHighErrorRate"},
+  "commonLabels": {"alertname": "AdminServerHighErrorRate", "service": "admin-server"},
+  "commonAnnotations": {},
+  "externalURL": "https://example.grafana.net/",
+  "version": "1",
+  "groupKey": "{}:{alertname=\"AdminServerHighErrorRate\"}",
+  "title": "[FIRING:1] AdminServerHighErrorRate",
+  "state": "alerting",
+  "message": ""
+}
