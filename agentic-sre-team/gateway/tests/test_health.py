@@ -1,22 +1,13 @@
-from fastapi.testclient import TestClient
-
-from sre_gateway.api.app import create_app
 from sre_gateway.settings import Settings
 
 
-def _client() -> TestClient:
-    app = create_app(Settings(database_url="postgresql+asyncpg://x:x@localhost:1/x"))
-    return TestClient(app)
-
-
-def test_healthz_ok():
-    with _client() as client:
-        res = client.get("/api/healthz")
+async def test_healthz_ok(client):
+    res = await client.get("/api/healthz")
     assert res.status_code == 200
     body = res.json()
     assert body["status"] == "ok"
     assert body["service"] == "sre-gateway"
-    assert isinstance(body["components"], dict)
+    assert body["components"] == {"db": "ok"}
 
 
 def test_settings_env_prefix(monkeypatch):

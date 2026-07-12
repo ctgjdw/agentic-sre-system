@@ -1,11 +1,16 @@
+from pathlib import Path
+
 import pytest
 from alembic import command
 from alembic.config import Config
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from testcontainers.postgres import PostgresContainer
 
+from sre_gateway.api.app import create_app
 from sre_gateway.db.engine import make_engine, make_sessionmaker
 from sre_gateway.db.models import Base
+from sre_gateway.settings import Settings
 
 
 def run_migrations(sync_url: str) -> None:
@@ -35,3 +40,14 @@ async def db(pg_url):
         await conn.execute(text("ALTER SEQUENCE case_display_seq RESTART WITH 1"))
     yield make_sessionmaker(engine)
     await engine.dispose()
+
+
+@pytest.fixture
+async def client(pg_url):
+    settings = Settings(database_url=pg_url, grafana_webhook_secret="topsecret",
+                        config_dir=Path(__file__).parents[2] / "config")
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://t") as c:
+            yield c
