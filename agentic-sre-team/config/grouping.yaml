@@ -1,0 +1,9 @@
+# Correlation grouping: signals with different fingerprints that share these
+# label values within the window attach to the same open case.
+# Deterministic; every grouping decision is audit-logged by NoiseControl.
+window_seconds: 120
+rules:
+  - name: same-service
+    label_keys: [service]
+  - name: same-component
+    label_keys: [service, component]
