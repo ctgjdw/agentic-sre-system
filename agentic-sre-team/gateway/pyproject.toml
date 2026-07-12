@@ -32,6 +32,10 @@ packages = ["src/sre_gateway"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# upstream starlette/testclient deprecation pending httpx2 migration, out of scope for the skeleton
+filterwarnings = [
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning",
+]
 
 [tool.ruff]
 line-length = 100
