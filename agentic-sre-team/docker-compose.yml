@@ -1,0 +1,37 @@
+name: agentic-sre-team
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: sre-postgres
+    environment:
+      POSTGRES_DB: sre
+      POSTGRES_USER: sre
+      POSTGRES_PASSWORD: ${SRE_PG_PASSWORD:-sre}
+    ports:
+      - "5433:5432"
+    volumes:
+      - sre-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sre -d sre"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  gateway:
+    build: ./gateway
+    container_name: sre-gateway
+    env_file: .env
+    environment:
+      SRE_DATABASE_URL: postgresql+asyncpg://sre:${SRE_PG_PASSWORD:-sre}@postgres:5432/sre
+      SRE_CONFIG_DIR: /config
+    volumes:
+      - ./config:/config:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  sre-pg:
