@@ -58,8 +58,9 @@
 Unchanged from the design phase - the plan's Global Constraints section
 restates them; the ten-item list lives in git history of this file and in
 `docs/superpowers/specs/2026-07-11-agentic-sre-team-design.md`. Headlines:
-LangGraph 1.x as a library in FastAPI (no LangGraph Server), Spectre as SUT
-(chaos-only changes), HolmesGPT pinned sidecar as the evidence engine,
+LangGraph 1.x as a library in FastAPI (no LangGraph Server), Spectre as the
+reference SUT (chaos-only changes; the SUT itself is config-described - see
+the amendment below), HolmesGPT pinned sidecar as the evidence engine,
 models.yaml tiers (Gemini Flash small/medium, Claude-on-Vertex frontier,
 air-gap via LiteLLM), LangSmith env-gated, GitHub+GitLab behind one
 ScmProvider, `scm_draft_mr` off by default and never an agent tool, the
@@ -67,11 +68,22 @@ triage->plan->parallel-workers->synthesize->rca->verify->gate1->remediate->
 gate2->publish graph with budgets between nodes, Telegram-only channel,
 default-deny manifests, append-only audit.
 
+2026-07-12 amendment (user direction; plan locked decisions 15-16): the system
+is generic - `config/environment.yaml` describes the target environment and
+every SUT-aware prompt renders from it, so Spectre is only the shipped example
+(chaos scripts + alert rules are reference-SUT demo assets). The Holmes
+evidence layer additionally uses the Grafana MCP server (`mcp_servers` entry),
+`grafana/tempo` (comparative fast/slow trace sampling), and
+`elasticsearch/data` + `elasticsearch/cluster` replacing the notional
+`opensearch` key (OpenSearch-compatible; the cluster toolset is explicitly for
+cluster-health and query-latency investigation), with `openshift/*` flipped on
+- as a reviewed git change - for OpenShift-platform targets.
+
 ## User's working preferences observed this project
 
 - Research-first before decisions; cite sources. Approval gates between
   phases; AskUserQuestion works well.
-- Major planning artifacts get a cold review by a separate Fable-class agent
+- Major planning artifacts get a cold review by a separate Opus-class agent
   before commit; findings verified (not blindly applied) first.
 - Conventional commits, scope `sre-team` for code / `agentic-sre-team` for
   docs, no agent co-author line, plain dashes (no em dash).

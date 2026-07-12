@@ -24,7 +24,7 @@ Copied from the spec; every task implicitly includes these.
 - Gateway: Python 3.12, FastAPI, uv. UI: React 18 + Vite + TypeScript, served by nginx.
 - Deterministic edges own all routing; LLMs decide only within nodes.
 - Model tiers come from `config/models.yaml`: `small`, `medium`, `frontier`. Local profile: small/medium = Gemini 2.5 Flash, frontier = Claude on Vertex. Air-gap = LiteLLM/vLLM via `openai-compatible`. Swapping is a config change only.
-- HolmesGPT runs as a **pinned-image sidecar in server mode**; workers call `POST /api/chat` with per-request `model`; `config/holmes.yaml` (in git) is the permission manifest for the evidence layer. All enabled toolsets read-only: prometheus, grafana/loki, docker (read-only socket), github, gitlab, opensearch, postgres.
+- HolmesGPT runs as a **pinned-image sidecar in server mode**; workers call `POST /api/chat` with per-request `model`; `config/holmes.yaml` (in git) is the permission manifest for the evidence layer. All enabled toolsets read-only: prometheus, grafana/loki, grafana/tempo, the grafana MCP server (dashboards, alert rules, datasource exploration), elasticsearch/data + elasticsearch/cluster (OpenSearch-compatible: log search plus cluster health, shard allocation and query latency), docker (read-only socket), github, gitlab, postgres. openshift/core|logs|live-metrics ship `enabled: false` and flip on - as a reviewed git change - for OpenShift-platform targets.
 - Agents never execute state-changing actions. The only write in the whole system is the gateway-side publish action that pushes a branch and opens a **draft** MR/PR on gate-2 approval when `scm_draft_mr` is enabled (off by default). No write-capable tool exists in the tool registry.
 - Humans approve every published artifact: HITL gate 1 (RCA) and gate 2 (runbook) via `interrupt()` / `Command(resume=...)`, from UI or Telegram.
 - Bounded loops: max 2 investigation rounds; exactly one citation-repair loop.
@@ -55,6 +55,8 @@ These are implementation-level choices the spec left open. They are decided now 
 12. **Evidence IDs** (`E1..En`) are allocated per case via an atomic counter column on `cases` so parallel workers never collide. Hypothesis IDs (`H1..Hn`) are owned by triage/synthesize only; workers propose hypotheses through `worker_reports`, never write the board.
 13. **Timestamps** are timezone-aware UTC everywhere (`datetime.now(UTC)`).
 14. **Migrations**: Alembic, sync driver `psycopg` for migration runs; app runs `asyncpg`.
+15. **The SUT is configuration, not code.** Spectre is only the reference target: `config/environment.yaml` describes the environment under management (name, platform, services, container names, repos, notes), and every SUT-specific string in a prompt (triage system prompt, worker scopes) renders from it. Pointing the system at another stack on the same platform family = replacing `environment.yaml` + the holmes.yaml endpoints + `repos.yaml` + `alerts/rules.yaml`; no code changes. The chaos scripts and Grafana alert rules are reference-SUT demo assets, not system dependencies.
+16. **Toolset amendment (2026-07-12, user direction; supersedes the spec section 8 literal list):** the evidence layer additionally uses the Grafana MCP server (`mcp_servers.grafana`), `grafana/tempo` (TraceQL search + comparative fast/slow trace sampling for latency), and `elasticsearch/data` + `elasticsearch/cluster` in place of the notional `opensearch` key (Holmes's ES toolsets are OpenSearch-compatible; the cluster toolset is explicitly for cluster-health and query-latency investigation), plus the `openshift/*` family for OpenShift targets. Sources: holmesgpt.dev builtin-toolsets pages for grafana-mcp, grafanatempo, elasticsearch, openshift.
 
 ## Execution conventions
 
@@ -91,6 +93,7 @@ agentic-sre-team/
 │   ├── models.fake.yaml       # fake profile (scripted model, hash embeddings)
 │   ├── budgets.yaml           # per-case envelope (tokens, tool calls, wall clock)
 │   ├── grouping.yaml          # correlation grouping rules
+│   ├── environment.yaml       # target-environment descriptor (Spectre = reference SUT)
 │   ├── holmes.yaml            # HolmesGPT toolset manifest (evidence-layer permissions)
 │   ├── repos.yaml             # watched SCM repositories
 │   ├── alerts/rules.yaml      # Grafana alert rule definitions for provisioning
@@ -2661,9 +2664,12 @@ git add gateway/src/sre_gateway/llm gateway/tests
 git commit -m "feat(sre-team): scripted chat model and audited json llm call with one repair"
 ```
 
-### Task 11: Per-agent permission manifests (default-deny)
+### Task 11: Per-agent permission manifests and target-environment descriptor
 
 **Files:**
+- Create: `agentic-sre-team/config/environment.yaml`
+- Create: `agentic-sre-team/gateway/src/sre_gateway/environment.py`
+- Create: `agentic-sre-team/gateway/tests/test_environment.py`
 - Create: `agentic-sre-team/config/agents/triage.yaml`
 - Create: `agentic-sre-team/config/agents/workers.yaml`
 - Create: `agentic-sre-team/config/agents/synthesize.yaml`
@@ -2682,8 +2688,40 @@ git commit -m "feat(sre-team): scripted chat model and audited json llm call wit
   - `AgentManifest` (pydantic): `agent: str`, `tier: str`, `tools: list[str]`, `budgets: dict` (`usd_per_day: float`).
   - `load_manifests(dir: Path) -> dict[str, AgentManifest]` - fails at startup on any tool not in the registry.
   - `assert_tool_allowed(manifests, agent: str, tool: str) -> None` - raises `PermissionError` unless the agent's manifest declares the tool (default-deny: unknown agent or missing manifest also raises).
+  - `EnvironmentConfig` (pydantic, in `sre_gateway/environment.py`): `name: str`, `description: str`, `platform: "docker-compose"|"kubernetes"|"openshift"`, `services: list[ServiceEntry]` (`ServiceEntry: {name, containers: list[str], repo: str | None, notes: str}`); methods `prompt_block() -> str` (the environment paragraph every SUT-aware prompt embeds) and `all_containers() -> list[str]`. `load_environment(path: Path) -> EnvironmentConfig`. This is locked decision 15: the ONLY place the system under test is named - triage and workers render from it (Tasks 15-16), and swapping targets is a config change.
 
-- [ ] **Step 1: Write the manifest files**
+- [ ] **Step 1: Write the manifest files and the environment descriptor**
+
+`config/environment.yaml` (Spectre is the shipped reference; replace this file to manage another stack):
+
+```yaml
+# Target-environment descriptor - the only place the SUT is named (locked decision 15).
+name: spectre
+platform: docker-compose        # docker-compose | kubernetes | openshift
+description: >-
+  IAM admin console stack: Keycloak (OIDC) backed by Postgres, an Express
+  admin-server, a React admin-ui, Kong edge gateway, OpenSearch audit store,
+  and Fluent Bit + Alloy shipping metrics/logs/traces to Grafana Cloud.
+services:
+  - name: keycloak
+    containers: [keycloak, keycloak-db]
+    notes: OIDC provider, Postgres-backed; login outages start here
+  - name: admin-server
+    containers: [spectre-admin-server]
+    repo: alexgoh/spectre
+    notes: only workload holding Keycloak Admin API credentials
+  - name: admin-ui
+    containers: [spectre-admin-ui]
+  - name: kong
+    containers: [spectre-kong]
+    notes: edge gateway fronting /api and /audit
+  - name: opensearch
+    containers: [spectre-opensearch]
+    notes: audit log store; watch cluster health and query latency
+  - name: log-pipeline
+    containers: [spectre-fluent-bit, spectre-alloy]
+    notes: Fluent Bit buffers audit logs; Alloy ships telemetry to Grafana Cloud
+```
 
 `config/agents/triage.yaml`:
 
@@ -2795,6 +2833,25 @@ def test_unknown_tool_fails_at_load(tmp_path):
         load_manifests(tmp_path)
 ```
 
+`gateway/tests/test_environment.py`:
+
+```python
+from pathlib import Path
+
+from sre_gateway.environment import load_environment
+
+CONFIG_DIR = Path(__file__).parents[2] / "config"
+
+
+def test_environment_descriptor_renders_prompt_block():
+    env = load_environment(CONFIG_DIR / "environment.yaml")
+    assert env.name == "spectre" and env.platform == "docker-compose"
+    assert "keycloak" in env.all_containers()
+    block = env.prompt_block()
+    assert "Target environment 'spectre'" in block
+    assert "spectre-opensearch" in block and "cluster health" in block
+```
+
 - [ ] **Step 3: Run to verify failure**
 
 Run: `uv run pytest tests/test_manifests.py -q`
@@ -2843,16 +2900,64 @@ def assert_tool_allowed(manifests: dict[str, AgentManifest], agent: str, tool: s
         raise PermissionError(f"agent '{agent}' is not permitted tool '{tool}' (default-deny)")
 ```
 
+`src/sre_gateway/environment.py`:
+
+```python
+from pathlib import Path
+from typing import Literal
+
+import yaml
+from pydantic import BaseModel, Field
+
+
+class ServiceEntry(BaseModel):
+    name: str
+    containers: list[str] = Field(default_factory=list)
+    repo: str | None = None
+    notes: str = ""
+
+
+class EnvironmentConfig(BaseModel):
+    """Descriptor of the environment under management (locked decision 15).
+
+    The only place the SUT is named: prompts render from prompt_block(), so
+    pointing the system at another stack is a config change, never a code change.
+    """
+
+    name: str
+    description: str
+    platform: Literal["docker-compose", "kubernetes", "openshift"] = "docker-compose"
+    services: list[ServiceEntry] = Field(default_factory=list)
+
+    def prompt_block(self) -> str:
+        lines = [f"Target environment '{self.name}' ({self.platform}): "
+                 f"{self.description}", "Services:"]
+        for svc in self.services:
+            repo = f" repo={svc.repo}" if svc.repo else ""
+            notes = f" - {svc.notes}" if svc.notes else ""
+            lines.append(f"- {svc.name} (containers: "
+                         f"{', '.join(svc.containers)}){repo}{notes}")
+        return "\n".join(lines)
+
+    def all_containers(self) -> list[str]:
+        return [c for svc in self.services for c in svc.containers]
+
+
+def load_environment(path: Path) -> EnvironmentConfig:
+    return EnvironmentConfig.model_validate(yaml.safe_load(path.read_text()))
+```
+
 - [ ] **Step 5: Run tests, verify pass**
 
-Run: `uv run pytest tests/test_manifests.py -q`
-Expected: `3 passed`
+Run: `uv run pytest tests/test_manifests.py tests/test_environment.py -q`
+Expected: `4 passed`
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add config/agents gateway/src/sre_gateway/manifests.py gateway/tests/test_manifests.py
-git commit -m "feat(sre-team): default-deny per-agent permission manifests"
+git add config/agents config/environment.yaml gateway/src/sre_gateway/manifests.py \
+        gateway/src/sre_gateway/environment.py gateway/tests
+git commit -m "feat(sre-team): default-deny agent manifests and target-environment descriptor"
 ```
 
 ### Task 12: Budget envelopes and enforcer
@@ -3309,7 +3414,7 @@ git commit -m "feat(sre-team): holmes client with sse tool events and recorded-f
 - Consumes: Tasks 4, 9-13.
 - Produces:
   - `CaseState` (TypedDict, `total=False`): `case_id, display_id, kind, title, severity: int, effort, round: int, failure_class, hypotheses: list[dict]` (owned by triage/synthesize only), `evidence: Annotated[list[dict], operator.add]`, `worker_reports: Annotated[list[dict], operator.add]`, `context_notes: Annotated[list[str], operator.add]`, `query_hints: list[str]`, `need_more: bool, rca: dict | None, verification: dict | None, repair_used: bool, runbook: dict | None, non_incident: bool, halt: dict | None`.
-  - `GraphDeps` dataclass: `settings, sessionmaker, audit, models: ModelFactory, manifests: dict[str, AgentManifest], budget: BudgetEnforcer, holmes: HolmesClient, channel: Channel`.
+  - `GraphDeps` dataclass: `settings, sessionmaker, audit, models: ModelFactory, manifests: dict[str, AgentManifest], budget: BudgetEnforcer, holmes: HolmesClient, channel: Channel, environment: EnvironmentConfig` (Task 11's descriptor - every SUT-aware prompt renders from it).
   - `Channel` protocol: `async send(text: str, *, buttons: list[dict] | None = None) -> str | None`; `LogChannel` records `sent: list[dict]` (fake profile + tests).
   - `guarded(deps, name, fn)` - wraps a node: checks the global pause flag and `budget.check_case` **before** running; on breach/pause returns `{"halt": {"reason": ..., "at_node": name}}` without running `fn`; also emits a `node_start`/`node_end` custom stream event around `fn` (via `langgraph.config.get_stream_writer`) and updates `cases.phase` to the node name.
   - Routers (pure functions, unit-testable): `route_after_triage`, `fan_out` (returns `list[Send]`), `route_after_synthesize`, `route_after_verify`, `route_after_gate_rca`, `route_after_gate_runbook`. **Every router returns `"park"` first whenever `state.get("halt")` is set** - this is the between-nodes budget stop.
@@ -3459,6 +3564,7 @@ from sre_gateway.audit import AuditWriter, get_flag
 from sre_gateway.budget import BudgetEnforcer
 from sre_gateway.channels.base import Channel
 from sre_gateway.db.models import Case
+from sre_gateway.environment import EnvironmentConfig
 from sre_gateway.holmes.client import HolmesClient
 from sre_gateway.llm.factory import ModelFactory
 from sre_gateway.manifests import AgentManifest
@@ -3475,6 +3581,7 @@ class GraphDeps:
     budget: BudgetEnforcer
     holmes: HolmesClient
     channel: Channel
+    environment: EnvironmentConfig
 
 
 def guarded(deps: GraphDeps, name: str, fn):
@@ -3742,6 +3849,7 @@ from sre_gateway.audit import AuditWriter
 from sre_gateway.budget import BudgetEnforcer, load_budgets
 from sre_gateway.channels.log import LogChannel
 from sre_gateway.db.models import Case, Hypothesis, SignalRow
+from sre_gateway.environment import load_environment
 from sre_gateway.graph.deps import GraphDeps
 from sre_gateway.graph.nodes.triage import make_triage
 from sre_gateway.holmes.client import HolmesClient
@@ -3764,7 +3872,8 @@ def deps(db, pg_url) -> GraphDeps:
                             script_dir=SCRIPTS),
         manifests=load_manifests(ROOT / "config/agents"),
         budget=BudgetEnforcer(db, load_budgets(ROOT / "config/budgets.yaml")),
-        holmes=HolmesClient("http://unused"), channel=LogChannel())
+        holmes=HolmesClient("http://unused"), channel=LogChannel(),
+        environment=load_environment(ROOT / "config/environment.yaml"))
 
 
 async def _seed_case(db) -> Case:
@@ -3812,18 +3921,21 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 
 from sre_gateway.db.models import Case, Hypothesis, SignalRow
+from sre_gateway.environment import EnvironmentConfig
 from sre_gateway.graph.deps import GraphDeps
 from sre_gateway.llm.json_call import call_llm_json
 from sre_gateway.manifests import assert_tool_allowed
 from sre_gateway.retrieval import search_learnings, search_runbooks
 
-SYSTEM = (
-    "You are the triage agent of an SRE team for the Spectre stack (Keycloak, Postgres, "
-    "Express admin-server, React admin-ui, Kong, OpenSearch, Fluent Bit, Alloy, Grafana "
-    "Cloud, GitHub Actions CI). Classify the incoming signal, propose severity (1=worst) "
-    "and investigation effort, and seed 3-6 distinct candidate hypotheses. If this is "
-    "clearly not an incident or pipeline failure, say so with a short canned reply."
-)
+def build_system(env: EnvironmentConfig) -> str:
+    """SUT-aware prompts render from the environment descriptor (locked decision 15)."""
+    return (
+        "You are the triage agent of an SRE team.\n"
+        f"{env.prompt_block()}\n"
+        "Classify the incoming signal, propose severity (1=worst) and investigation "
+        "effort, and seed 3-6 distinct candidate hypotheses. If this is clearly not "
+        "an incident or pipeline failure, say so with a short canned reply."
+    )
 
 
 class TriageOut(BaseModel):
@@ -3868,7 +3980,8 @@ def make_triage(deps: GraphDeps):
             f"Matching runbooks:\n{runbooks}\n"
             f"Pipeline-failure cases must set failure_class."
         )
-        out = await call_llm_json(deps.models.chat(tier, "triage"), system=SYSTEM,
+        out = await call_llm_json(deps.models.chat(tier, "triage"),
+                                  system=build_system(deps.environment),
                                   user=user, schema=TriageOut, audit=deps.audit,
                                   node="triage", case_id=case_id,
                                   model_id=model_id, pricing=pricing)
@@ -3929,18 +4042,18 @@ git commit -m "feat(sre-team): pgvector retrieval and triage node seeding the hy
 - Produces:
   - `make_plan(deps)`: deterministic node - no LLM. Owns the round counter: increments it as the round starts (`state.round + 1`, triage seeded 0) and persists it to `cases.round` (this is what the UI's "round N of 2" reads), then emits a `plan` custom event describing the fan-out (workers chosen, effort, round). Returns `{round, need_more: False, worker_reports: [], evidence: []}` - the two list keys are `operator.add` no-op appends. The actual dispatch is the `fan_out` conditional edge.
   - `make_worker(deps, domain: str)` for domains `metrics, logs, infra, changes, ci`:
-    - Builds the ask prompt whose **first line is `Domain: <domain>`** (the fake server keys on it; real Holmes just reads it as context), followed by scope instructions per domain, the case title/kind, signal summaries, the current hypothesis board, `context_notes`, and the instruction to return findings JSON (`FindingsOut` schema passed as `response_format`).
+    - Builds the ask prompt whose **first line is `Domain: <domain>`** (the fake server keys on it; real Holmes just reads it as context), followed by scope instructions per domain, the environment descriptor block (`deps.environment.prompt_block()` - no SUT names are hard-coded), the case title/kind, the current hypothesis board, `context_notes`, `query_hints`, and the instruction to return findings JSON (`FindingsOut` schema passed as `response_format`).
     - Calls `deps.holmes.chat(model=deps.models.holmes_model(deps.manifests["workers"].tier), on_event=...)`; each `tool_result` event -> `audit.log_tool` + custom stream event `{"type": "tool_call", "worker": domain, ...}`.
     - Allocates evidence IDs atomically: `UPDATE cases SET evidence_counter = evidence_counter + :n RETURNING evidence_counter`; persists one `EvidenceRow` per Holmes tool call (`eid`, `worker=domain`, `toolset`, `invocation`, `excerpt=result[:2000]`, `hypothesis_links` from findings).
     - Parses `answer.text` as `FindingsOut` (plain `extract_json` + Pydantic - no LLM retry here; Holmes owns its own loop); on any exception returns a degraded report (`{"worker": domain, "degraded": True, "error": str(e)}`) plus a `worker_warning` custom event, never raises (spec section 10).
     - Returns `{"evidence": [...], "worker_reports": [report]}` where report = `{worker, summary, findings: [{hid, direction, note, eids}], proposed_hypotheses, degraded, needs_infra}`.
   - `FindingsOut` schema: `summary: str`, `findings: list[{hid: str | None, direction: "for"|"against", note: str, evidence_idx: list[int]}]`, `proposed_hypotheses: list[str]`, `needs_infra: bool = False` (pipeline ci worker sets it when runner/registry issues surface).
-  - Worker prompts per domain (constants in `workers.py`), scoping by prompt per spec section 4:
-    - metrics: "Use only Prometheus/Grafana metrics toolsets..."
-    - logs: "Use only Loki and OpenSearch log toolsets..."
-    - infra: "Use only Docker, Kubernetes/OpenShift and Postgres toolsets... Spectre containers: keycloak, keycloak-db, spectre-admin-server, spectre-admin-ui, spectre-kong, spectre-opensearch, spectre-fluent-bit, spectre-alloy."
-    - changes: "Use only GitHub/GitLab toolsets. Most incidents are change-induced: recent commits, merged PRs/MRs, diffs touching the implicated services."
-    - ci: "Pipeline-failure investigation: failed job logs with exit codes, workflow/.gitlab-ci.yml config, the triggering diff, and run history of the same job across recent commits and retries (flaky detection)."
+  - Worker prompts per domain (constants in `workers.py`), scoping by prompt per spec section 4; container/service names come from the environment descriptor, never from the scope text:
+    - metrics: Prometheus (PromQL: rates, latencies, saturation, alert-rule state) + grafana/tempo traces (`tempo_fetch_traces_comparative_sample` compares fast/slow/typical traces to localize latency; TraceQL search) + Grafana MCP tools (dashboards, alert rules).
+    - logs: Loki + elasticsearch/data (OpenSearch-compatible log/document search): error patterns, slow-call patterns, first-occurrence timestamps.
+    - infra: Docker (container state, restarts, resource stats) + Postgres (DB health) + elasticsearch/cluster (cluster status, shard allocation, node/index stats, **query-latency investigation** - the user-directed ES cluster-health mission) + openshift/* on kubernetes/openshift platforms.
+    - changes: GitHub/GitLab toolsets. Most incidents are change-induced: recent commits, merged PRs/MRs, diffs touching the implicated services.
+    - ci: pipeline-failure investigation: failed job logs with exit codes, workflow/.gitlab-ci.yml config, the triggering diff, and run history of the same job across recent commits and retries (flaky detection).
 
 - [ ] **Step 1: Write the failing worker tests**
 
@@ -4065,14 +4178,19 @@ from sre_gateway.graph.deps import GraphDeps, stream_writer
 from sre_gateway.llm.json_call import extract_json
 
 SCOPES = {
-    "metrics": "Use only Prometheus / Grafana metrics toolsets. Query rates, latencies, "
-               "saturation and alert-rule state for the implicated services.",
-    "logs": "Use only Loki and OpenSearch log toolsets. Find error patterns, slow-call "
-            "patterns and first-occurrence timestamps.",
-    "infra": "Use only Docker, Kubernetes/OpenShift and Postgres toolsets. Spectre "
-             "containers: keycloak, keycloak-db, spectre-admin-server, spectre-admin-ui, "
-             "spectre-kong, spectre-opensearch, spectre-fluent-bit, spectre-alloy. Check "
-             "container state, restarts, resource stats, DB health.",
+    "metrics": "Use the Prometheus toolset for PromQL (rates, latencies, saturation, "
+               "alert-rule state), the Tempo toolset for traces - "
+               "tempo_fetch_traces_comparative_sample localizes latency by comparing "
+               "fast/slow/typical traces, TraceQL search finds affected routes - and "
+               "the Grafana MCP tools for dashboards and alert rules.",
+    "logs": "Use the Loki toolset and elasticsearch/data (OpenSearch-compatible "
+            "document/log search) to find error patterns, slow-call patterns and "
+            "first-occurrence timestamps across app and audit logs.",
+    "infra": "Use the Docker toolset (container state, restarts, resource stats), the "
+             "Postgres toolset (DB health), and elasticsearch/cluster for search-store "
+             "health: cluster status, shard allocation, node/index stats and query "
+             "latency. On kubernetes/openshift platforms use the openshift/* toolsets "
+             "(describe, events, logs, top).",
     "changes": "Use only GitHub / GitLab toolsets. Most incidents are change-induced: "
                "list recent commits and merged PRs/MRs, inspect diffs touching the "
                "implicated services, correlate merge times with symptom onset.",
@@ -4112,6 +4230,7 @@ def make_worker(deps: GraphDeps, domain: str):
         try:
             ask = (
                 f"Domain: {domain}\n{SCOPES[domain]}\n\n"
+                f"{deps.environment.prompt_block()}\n\n"
                 f"Case: {state.get('title', '')} (kind: {state.get('kind', 'incident')})\n"
                 f"Hypothesis board:\n{_board_text(state.get('hypotheses', []))}\n"
                 f"Operator context notes: {state.get('context_notes', [])}\n"
@@ -5411,7 +5530,7 @@ git commit -m "feat(sre-team): assemble case graph; full lifecycle, rejection an
     - `GET /governance/audit?limit=100` - newest-first audit rows.
     - `GET /activity?hours=24` - `{buckets: [{ts, signals, suppressed}] (30-min bins), cases: [{id, display_id, severity, kind, created_at}], annotations: [{ts, text, kind}]}`.
     - `POST /activity/annotations` body `{text, kind}` (audit event `event_type="annotation"`; chaos scripts call this).
-  - `create_app` lifespan now wires: engine/sessionmaker/audit -> ModelFactory (profile-aware, `settings.fake_script_dir` override) -> manifests -> BudgetEnforcer -> HolmesClient(settings.holmes_url) -> channel (`LogChannel` now; Telegram replaces it in Task 34 when configured) -> checkpointer -> `build_graph` -> `CaseRunner` -> `IntakeService(on_case_opened=...)` whose hook is `async def _on_opened(cid): await runner.start(cid, {"case_id": cid})` (triage re-reads kind and everything else from the case row, so the hook needs only the id) -> `relaunch_open_cases()`. Health keys: `db`, plus later tasks add their components.
+  - `create_app` lifespan now wires: engine/sessionmaker/audit -> ModelFactory (profile-aware, `settings.fake_script_dir` override) -> manifests + `load_environment(settings.config_dir / "environment.yaml")` -> BudgetEnforcer -> HolmesClient(settings.holmes_url) -> channel (`LogChannel` now; Telegram replaces it in Task 34 when configured) -> checkpointer -> `build_graph` -> `CaseRunner` -> `IntakeService(on_case_opened=...)` whose hook is `async def _on_opened(cid): await runner.start(cid, {"case_id": cid})` (triage re-reads kind and everything else from the case row, so the hook needs only the id) -> `relaunch_open_cases()`. Health keys: `db`, plus later tasks add their components.
 
 - [ ] **Step 1: Write the failing API tests**
 
@@ -5879,7 +5998,7 @@ Read https://holmesgpt.dev (server mode / HTTP API pages) and the image registry
 1. The current published server image and a pinned tag -> set `HOLMES_IMAGE` in `.env.example` (e.g. `HOLMES_IMAGE=robustadev/holmes:<pinned-tag>` - confirm the exact registry/repo from the docs; do not guess).
 2. The config file mount path and the serve command/port.
 3. The exact `/api/chat` request fields (`ask`, `model`, `stream`, `response_format`, conversation history) and response fields (`analysis`, `tool_calls[]` entry shape), plus SSE event names. Fetch `GET <holmes>/openapi.json` once the container runs and diff against `holmes/client.py` + `testing/fake_holmes.py`. **If they differ, update client, fake server, and fixtures together in this task** - the fake is the contract (spec section 12).
-4. Toolset config keys for: prometheus, grafana/loki, docker, github, gitlab, opensearch, postgres.
+4. Toolset config keys against the per-toolset docs (user-supplied primary sources): prometheus, grafana/loki, grafana/tempo (https://holmesgpt.dev/latest/data-sources/builtin-toolsets/grafanatempo/), elasticsearch/data + elasticsearch/cluster (https://holmesgpt.dev/latest/data-sources/builtin-toolsets/elasticsearch/ - OpenSearch-compatible), the grafana MCP server (https://holmesgpt.dev/latest/data-sources/builtin-toolsets/grafana-mcp/ - note it is an `mcp_servers` entry, not a `toolsets` key, and its example instructions warn about overlapping with the native prometheus toolset: keep worker prompts scoped so PromQL goes to the native toolset and dashboards/alert-rules go to MCP), openshift/* (https://holmesgpt.dev/latest/data-sources/builtin-toolsets/openshift/ - needs oc CLI + kubeconfig; leave disabled for docker-compose targets), docker, github, gitlab, postgres.
 
 - [ ] **Step 2: Write config/holmes.yaml**
 
@@ -5889,6 +6008,8 @@ Shape below follows the docs-check; keep every toolset read-only and this file i
 # HolmesGPT toolset manifest - the permission boundary of the evidence layer.
 # Changing this file is a reviewed git change (spec section 8). Read-only only:
 # Holmes tool-approval stays off because no write-capable toolset is enabled.
+# Endpoints reference env vars so the same manifest serves any target
+# environment (locked decision 15); Spectre defaults live in .env.example.
 model: vertex_ai/gemini-2.5-flash        # default; workers override per request
 toolsets:
   prometheus:
@@ -5902,6 +6023,24 @@ toolsets:
     config:
       url: ${SRE_GRAFANA_URL}
       api_key: ${GRAFANA_SA_TOKEN}
+  grafana/tempo:                               # traces: TraceQL + comparative
+    enabled: true                              # fast/slow/typical trace sampling
+    config:
+      api_url: ${SRE_GRAFANA_URL}
+      api_key: ${GRAFANA_SA_TOKEN}
+      grafana_datasource_uid: ${GRAFANA_TEMPO_DS_UID}
+  elasticsearch/data:                          # OpenSearch-compatible log/doc search
+    enabled: true
+    config:
+      api_url: ${TARGET_OPENSEARCH_URL}
+      verify_ssl: false                        # local dev cluster; true in prod
+      # username: ${TARGET_OPENSEARCH_USER}    # enable when the cluster has auth
+      # password: ${TARGET_OPENSEARCH_PASSWORD}
+  elasticsearch/cluster:                       # cluster health, shard allocation,
+    enabled: true                              # node/index stats, query latency
+    config:
+      api_url: ${TARGET_OPENSEARCH_URL}
+      verify_ssl: false
   docker:
     enabled: true                              # read-only socket mount, see compose
   github:
@@ -5913,19 +6052,43 @@ toolsets:
     config:
       url: ${SRE_GITLAB_BASE_URL}
       token: ${SRE_GITLAB_TOKEN}
-  opensearch:
-    enabled: true
-    config:
-      hosts: ["http://spectre-opensearch:9200"]
   postgres:
     enabled: true
     config:
-      connection_string: ${SPECTRE_PG_RO_URL}  # read-only role on keycloak-db
-  kubernetes:
-    enabled: false                             # on-prem profile flips this on
+      connection_string: ${TARGET_PG_RO_URL}   # read-only role on the target DB
+  # OpenShift-platform targets (environment.yaml platform: openshift) flip these
+  # on as a reviewed git change. Tool inventory is oc get/describe/events/logs/
+  # top/policy-can-i - read-only in effect. openshift/security exists too if
+  # SCC/RBAC review is needed. Requires oc CLI + kubeconfig in the container.
+  openshift/core:
+    enabled: false
+  openshift/logs:
+    enabled: false
+  openshift/live-metrics:
+    enabled: false
+mcp_servers:
+  grafana:                                     # ~57 tools: dashboards, alert rules,
+    description: "Grafana dashboards, alerting and datasource exploration"
+    config:                                    # datasources, incidents, oncall
+      url: ${GRAFANA_MCP_URL}                  # Grafana Cloud: https://<stack>.grafana.net/mcp
+      mode: streamable-http
+      extra_headers:
+        X-Grafana-API-Key: ${GRAFANA_SA_TOKEN}
 ```
 
-(Adjust key names to whatever the docs-check found; the enabled set and read-only stance are fixed by the spec.)
+(Adjust key names to whatever the docs-check found; the enabled set and read-only stance are fixed. Self-hosted/air-gap Grafana needs a deployed grafana-mcp server instead of the Cloud `/mcp` endpoint - the URL env var is the only thing that changes.)
+
+Append the evidence-layer block to `.env.example`:
+
+```bash
+# --- evidence layer (holmes.yaml references these) ---
+GRAFANA_PROM_URL=                   # Grafana Cloud Prometheus/Mimir query endpoint
+GRAFANA_SA_TOKEN=                   # service account token (Viewer), also used by the MCP server
+GRAFANA_TEMPO_DS_UID=               # Tempo datasource uid in the Grafana stack
+GRAFANA_MCP_URL=                    # e.g. https://<stack>.grafana.net/mcp
+TARGET_OPENSEARCH_URL=http://spectre-opensearch:9200   # OpenSearch/ES of the target env
+TARGET_PG_RO_URL=                   # read-only postgres role on the target DB
+```
 
 - [ ] **Step 3: Compose service**
 
@@ -8570,7 +8733,7 @@ Branch: `feat/sre-team-p8-chat`
 **Interfaces:**
 - Consumes: `HolmesClient`, `ChatThread/ChatMessage` (Task 3), `AuditWriter`.
 - Produces:
-  - `ChatService(sessionmaker, holmes, models, audit, settings)`:
+  - `ChatService(sessionmaker, holmes, models, audit, settings, environment)`:
     - `async create_thread(title: str = "", context_case_id: str | None = None) -> dict`.
     - `async stream_message(thread_id: str, text: str) -> AsyncIterator[dict]` - yields `{"type": "budget_denied"}` / `{"type": "tool_start"|"tool_result", ...}` / `{"type": "answer", "text", "message_id"}`. Behavior: budget first - `spend_usd_today` resets when `budget_date != today (UTC)`; at or over `chat_thread_daily_usd_cap` yields `budget_denied` and stops (429 at the API layer). Otherwise persists the user `ChatMessage`, builds the ask (`Domain: chat` first line + environment preamble; case grounding added in Task 43), relays `holmes.chat(..., model=medium holmes model, on_event=queue)` streaming tool events, then persists the assistant message with `tool_ledger` = the tool calls, adds `chat_message_cost_estimate_usd` to the thread's daily spend (flat estimate; revisit if the Task 23 docs-check shows Holmes returns usage), audits `event_type="chat"`.
     - Chat runs on the same read-only Holmes toolsets and **cannot approve gates or publish** - no such code path exists here; decisions stay on `/cases/{id}/decision` (spec 6a guardrails).
@@ -8664,7 +8827,7 @@ Add a `chat_service` conftest fixture building `ChatService` with the fake-holme
         yield {"type": "answer", "text": answer.text, "message_id": message_id}
 ```
 
-`_build_ask` (ad-hoc): `f"Domain: chat\nYou are the ops chat of the SRE team for the Spectre stack. Answer with evidence from your read-only toolsets; cite what you ran.\n\nQuestion: {text}"`.
+`_build_ask` (ad-hoc): `f"Domain: chat\nYou are the ops chat of an SRE team.\n{self.environment.prompt_block()}\nAnswer with evidence from your read-only toolsets; cite what you ran.\n\nQuestion: {text}"` (`ChatService` takes the `EnvironmentConfig` in its constructor - same locked-decision-15 rule as the workers).
 
 - [ ] **Step 3: Run tests, verify pass, commit**
 
@@ -9222,7 +9385,7 @@ echo "== done in $(( $(date +%s) - START ))s (target: under ~300s to close)"
 
 Makefile: `demo:\n\t./scripts/demo.sh`
 
-- [ ] **Step 2: Write README.md** - sections: what this is (one paragraph + pointer to the spec), architecture sketch (services table from spec section 3), prerequisites (Docker, uv, node, Spectre repo, Grafana Cloud stack + SA token, Vertex project + ADC, Telegram bot, GitHub/GitLab tokens), setup (`cp .env.example .env`, fill, `make up provision`), the make-target table (`up, up-fake, down, migrate, test, lint, e2e, smoke, live-check, holmes-check, provision, chaos-*, chaos-ci, demo`), profile matrix (fake / local / air-gap: what swaps where, per spec section 7), and the two acceptance checklists:
+- [ ] **Step 2: Write README.md** - sections: what this is (one paragraph + pointer to the spec), architecture sketch (services table from spec section 3), prerequisites (Docker, uv, node, Spectre repo, Grafana Cloud stack + SA token, Vertex project + ADC, Telegram bot, GitHub/GitLab tokens), setup (`cp .env.example .env`, fill, `make up provision`), the make-target table (`up, up-fake, down, migrate, test, lint, e2e, smoke, live-check, holmes-check, provision, chaos-*, chaos-ci, demo`), profile matrix (fake / local / air-gap: what swaps where, per spec section 7), a **Bring your own environment** section (Spectre is only the reference SUT: swap `config/environment.yaml`, the holmes.yaml endpoint env vars, `config/repos.yaml`, and `config/alerts/rules.yaml` to manage any stack on the same platform family - no code changes; chaos scripts and the seeded-failure flow are Spectre demo assets to replicate per target), and the two acceptance checklists:
 
 **Incident acceptance (spec section 9, target under ~5 minutes):**
 1. `make chaos-error-storm` -> Grafana Cloud alert fires.
