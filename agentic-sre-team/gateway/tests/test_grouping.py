@@ -14,12 +14,13 @@ def _grouping() -> CorrelationGrouping:
     return CorrelationGrouping(load_grouping(CONFIG))
 
 
-async def _case_with_signal(db, labels, age_s=30, fp="grafana:kc-down") -> str:
+async def _case_with_signal(db, labels, age_s=30, fp="grafana:kc-down",
+                            kind="incident", source="grafana") -> str:
     async with db() as s:
-        c = Case(display_id="CASE-0001", kind="incident", fingerprint=fp, thread_id="t")
+        c = Case(display_id="CASE-0001", kind=kind, fingerprint=fp, thread_id="t")
         s.add(c)
         await s.flush()
-        s.add(SignalRow(case_id=c.id, source="grafana", kind="incident", fingerprint=fp,
+        s.add(SignalRow(case_id=c.id, source=source, kind=kind, fingerprint=fp,
                         labels=labels,
                         received_at=datetime.now(UTC) - timedelta(seconds=age_s)))
         await s.commit()
@@ -48,3 +49,14 @@ async def test_missing_label_never_groups(db):
     d = await nc.decide(Signal(source="grafana", fingerprint="grafana:other",
                                summary="x", labels={}))
     assert d.action == "open"
+
+
+async def test_never_groups_across_case_kinds(db):
+    # Open pipeline-failure case whose signal shares service=keycloak within the window.
+    await _case_with_signal(db, {"service": "keycloak"}, fp="github:ci-fail",
+                            kind="pipeline_failure", source="github")
+    nc = NoiseControl(db, AuditWriter(db), grouping=_grouping())
+    # Incident signal: same label + window, different fingerprint - only the kind differs.
+    d = await nc.decide(Signal(source="grafana", fingerprint="grafana:5xx-admin",
+                               summary="admin-server 5xx", labels={"service": "keycloak"}))
+    assert d.action == "open"  # must NOT attach onto the pipeline-failure case
