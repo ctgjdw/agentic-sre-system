@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
-from sqlalchemy import text
+from sqlalchemy import desc, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sre_gateway.audit import AuditWriter, get_flag
@@ -42,18 +43,34 @@ class IntakeService:
                 await s.commit()
             return IngestResult("attach", decision.case_id, None)
 
-        async with self._sm() as s:
-            seq = (await s.execute(text("SELECT nextval('case_display_seq')"))).scalar_one()
-            case = Case(display_id=f"CASE-{seq:04d}", kind=signal.kind.value,
-                        title=signal.summary, fingerprint=signal.fingerprint, thread_id="")
-            s.add(case)
-            await s.flush()
-            # id is a Python-side default resolved during flush, so thread_id (= case id)
-            # can only be assigned once the row has been flushed and case.id is populated.
-            case.thread_id = case.id
-            s.add(self._row(signal, case.id, primary=True, reason="opened"))
-            await s.commit()
-            case_id, display_id = case.id, case.display_id
+        try:
+            async with self._sm() as s:
+                seq = (await s.execute(text("SELECT nextval('case_display_seq')"))).scalar_one()
+                case = Case(display_id=f"CASE-{seq:04d}", kind=signal.kind.value,
+                            title=signal.summary, fingerprint=signal.fingerprint, thread_id="")
+                s.add(case)
+                await s.flush()
+                # id is a Python-side default resolved during flush, so thread_id (= case id)
+                # can only be assigned once the row has been flushed and case.id is populated.
+                case.thread_id = case.id
+                s.add(self._row(signal, case.id, primary=True, reason="opened"))
+                await s.commit()
+                case_id, display_id = case.id, case.display_id
+        except IntegrityError:
+            # A concurrent ingest for this brand-new fingerprint won the race and already
+            # opened a case (partial unique index on cases.fingerprint WHERE status <>
+            # 'closed'). Attach this signal to that case instead of failing or double-opening.
+            async with self._sm() as s:
+                existing = (await s.execute(
+                    select(Case).where(Case.fingerprint == signal.fingerprint,
+                                       Case.status != "closed")
+                    .order_by(desc(Case.created_at)).limit(1)
+                )).scalar_one()
+                s.add(self._row(signal, existing.id, primary=False, reason="dedup"))
+                await s.commit()
+                existing_id = existing.id
+            return IngestResult("attach", existing_id, None)
+
         await self._audit.log("intake", actor="intake", case_id=case_id,
                               fingerprint=signal.fingerprint, reason="opened",
                               source=signal.source.value)

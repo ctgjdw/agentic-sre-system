@@ -25,3 +25,11 @@ async def test_audit_is_append_only(db):
         with pytest.raises(Exception, match="append-only"):
             await session.execute(text("UPDATE audit_events SET actor='x'"))
             await session.commit()
+
+    # fresh session: the prior transaction is aborted after the raised exception
+    async with db() as session:
+        session.add(AuditEvent(actor="system", event_type="intake", payload={}))
+        await session.commit()
+        with pytest.raises(Exception, match="append-only"):
+            await session.execute(text("DELETE FROM audit_events"))
+            await session.commit()
