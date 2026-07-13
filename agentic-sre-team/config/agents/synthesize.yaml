@@ -1,0 +1,4 @@
+agent: synthesize
+tier: medium
+tools: [runbook_search]
+budgets: {usd_per_day: 3.0}

@@ -1,0 +1,4 @@
+agent: remediate
+tier: frontier
+tools: [runbook_search]
+budgets: {usd_per_day: 6.0}

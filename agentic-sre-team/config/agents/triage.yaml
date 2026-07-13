@@ -1,0 +1,4 @@
+agent: triage
+tier: small
+tools: [runbook_search, learning_search]
+budgets: {usd_per_day: 3.0}

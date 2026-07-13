@@ -1,0 +1,26 @@
+# Target-environment descriptor - the only place the SUT is named (locked decision 15).
+name: spectre
+platform: docker-compose        # docker-compose | kubernetes | openshift
+description: >-
+  IAM admin console stack: Keycloak (OIDC) backed by Postgres, an Express
+  admin-server, a React admin-ui, Kong edge gateway, OpenSearch audit store,
+  and Fluent Bit + Alloy shipping metrics/logs/traces to Grafana Cloud.
+services:
+  - name: keycloak
+    containers: [keycloak, keycloak-db]
+    notes: OIDC provider, Postgres-backed; login outages start here
+  - name: admin-server
+    containers: [spectre-admin-server]
+    repo: alexgoh/spectre
+    notes: only workload holding Keycloak Admin API credentials
+  - name: admin-ui
+    containers: [spectre-admin-ui]
+  - name: kong
+    containers: [spectre-kong]
+    notes: edge gateway fronting /api and /audit
+  - name: opensearch
+    containers: [spectre-opensearch]
+    notes: audit log store; watch cluster health and query latency
+  - name: log-pipeline
+    containers: [spectre-fluent-bit, spectre-alloy]
+    notes: Fluent Bit buffers audit logs; Alloy ships telemetry to Grafana Cloud

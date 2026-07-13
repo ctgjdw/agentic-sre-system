@@ -1,0 +1,4 @@
+agent: chat
+tier: medium
+tools: []
+budgets: {usd_per_day: 5.0}

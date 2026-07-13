@@ -1,0 +1,4 @@
+agent: workers
+tier: medium
+tools: []
+budgets: {usd_per_day: 6.0}

@@ -1,0 +1,4 @@
+agent: rca
+tier: frontier
+tools: []
+budgets: {usd_per_day: 6.0}

@@ -1,0 +1,4 @@
+agent: verify
+tier: small
+tools: []
+budgets: {usd_per_day: 1.0}
