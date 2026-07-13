@@ -47,6 +47,13 @@ async def call_llm_json(model: BaseChatModel, *, system: str, user: str, schema:
             try:                # final failure propagates and the runner parks the case
                 response = await model.ainvoke(messages)
                 break
+            except (IndexError, FileNotFoundError):
+                # Deterministic, non-transient: ScriptedChatModel script exhaustion or a
+                # missing fixture. Retrying can't help and just adds real sleep()
+                # backoff to every exhaustion-path test. Surface immediately.
+                # TODO(Task 25): also classify real provider 4xx/auth errors as
+                # non-retryable once Phase 4 brings in real provider exception types.
+                raise
             except Exception:
                 if retry == 2:
                     raise

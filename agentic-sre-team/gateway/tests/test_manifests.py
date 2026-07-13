@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from sre_gateway.manifests import assert_tool_allowed, load_manifests
 
@@ -28,4 +29,13 @@ def test_unknown_tool_fails_at_load(tmp_path):
     (tmp_path / "bad.yaml").write_text(
         "agent: bad\ntier: small\ntools: [delete_everything]\nbudgets: {usd_per_day: 1}\n")
     with pytest.raises(ValueError, match="delete_everything"):
+        load_manifests(tmp_path)
+
+
+def test_invalid_tier_fails_at_load(tmp_path):
+    # A typo'd tier must explode at manifest-load time, not as a mid-case KeyError
+    # inside factory.chat() when the case reaches that agent.
+    (tmp_path / "typo.yaml").write_text(
+        "agent: typo\ntier: smol\ntools: []\nbudgets: {usd_per_day: 1}\n")
+    with pytest.raises(ValidationError, match="tier"):
         load_manifests(tmp_path)

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from sre_gateway.llm.factory import ModelFactory, load_models_config
+from sre_gateway.llm.factory import ModelFactory, ModelsConfig, load_models_config
 
 CONFIG_DIR = Path(__file__).parents[2] / "config"
 
@@ -22,6 +22,27 @@ def test_unknown_tier_raises():
     cfg = load_models_config(CONFIG_DIR / "models.fake.yaml")
     with pytest.raises(KeyError):
         ModelFactory(cfg).describe("gigantic")
+
+
+def test_non_fake_tier_missing_pricing_raises():
+    # A tier's model id drifting out of sync with the pricing table (e.g. Task 25
+    # bumping a model id without updating pricing) must fail fast at construction
+    # instead of silently zeroing cost_usd and disarming the daily spend cap.
+    cfg = ModelsConfig.model_validate({
+        "tiers": {"small": {"provider": "vertex-gemini", "model": "gemini-9000", "params": {}}},
+        "embeddings": {"provider": "fake", "model": "hash", "dim": 8},
+        "pricing": {},
+    })
+    with pytest.raises(ValueError, match="gemini-9000"):
+        ModelFactory(cfg)
+
+
+def test_fake_profile_tiers_are_exempt_from_pricing():
+    # The fake profile ships pricing: {} for every tier (all provider: fake) -- must
+    # stay legal, since it is the no-network test/dev profile.
+    cfg = load_models_config(CONFIG_DIR / "models.fake.yaml")
+    assert cfg.pricing == {}
+    ModelFactory(cfg)  # must not raise
 
 
 async def test_fake_embeddings_deterministic_unit_vectors():

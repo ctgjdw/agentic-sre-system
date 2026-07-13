@@ -47,6 +47,11 @@ class ModelFactory:
     def __init__(self, config: ModelsConfig, script_dir: Path | None = None) -> None:
         self.config = config
         self.script_dir = script_dir or Path(config.script_dir or "tests/fixtures/scripts")
+        for tier_name, tc in config.tiers.items():
+            if tc.provider != "fake" and tc.model not in config.pricing:
+                raise ValueError(
+                    f"tier '{tier_name}' (model '{tc.model}') has no entry in config.pricing; "
+                    "a missing entry silently zeros cost_usd and disarms the daily spend cap")
 
     def chat(self, tier: str, node: str) -> BaseChatModel:
         tc = self.config.tiers[tier]

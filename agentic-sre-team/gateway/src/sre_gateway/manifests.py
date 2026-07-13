@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -13,7 +14,7 @@ TOOL_REGISTRY: dict[str, str] = {
 
 class AgentManifest(BaseModel):
     agent: str
-    tier: str
+    tier: Literal["small", "medium", "frontier"]
     tools: list[str] = Field(default_factory=list)
     budgets: dict = Field(default_factory=dict)
 
