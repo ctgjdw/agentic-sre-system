@@ -45,7 +45,7 @@ class BudgetEnforcer:
             res = await s.execute(text(
                 "SELECT COALESCE(SUM((payload->>'cost_usd')::float), 0) FROM audit_events "
                 "WHERE actor = :actor AND event_type = 'llm_call' "
-                "AND ts >= date_trunc('day', now() AT TIME ZONE 'utc')"
+                "AND ts >= date_trunc('day', now() AT TIME ZONE 'utc') AT TIME ZONE 'utc'"
             ), {"actor": agent})
             return float(res.scalar_one())
 

@@ -1,7 +1,6 @@
 import asyncio
 import hashlib
 import json
-import re
 import time
 from typing import TypeVar
 
@@ -12,7 +11,6 @@ from pydantic import BaseModel, ValidationError
 from sre_gateway.audit import AuditWriter
 
 T = TypeVar("T", bound=BaseModel)
-_FENCE = re.compile(r"```(?:json)?", re.IGNORECASE)
 
 
 class LlmJsonError(Exception):
@@ -20,11 +18,15 @@ class LlmJsonError(Exception):
 
 
 def extract_json(text: str) -> dict:
-    cleaned = _FENCE.sub("", text).strip().strip("`")
-    start, end = cleaned.find("{"), cleaned.rfind("}")
+    # Slice out the outermost {...} span rather than stripping ``` globally: a global
+    # strip would also delete fences embedded inside JSON string values (e.g. a
+    # runbook_md field containing a ```bash ... ``` block), silently corrupting them.
+    # A wrapping ```json ... ``` fence is discarded for free since the braces sit
+    # inside it and this slice only keeps what's between the outermost braces.
+    start, end = text.find("{"), text.rfind("}")
     if start == -1 or end <= start:
         raise LlmJsonError(f"no JSON object in response: {text[:200]!r}")
-    return json.loads(cleaned[start:end + 1])
+    return json.loads(text[start:end + 1])
 
 
 def _h(text: str) -> str:

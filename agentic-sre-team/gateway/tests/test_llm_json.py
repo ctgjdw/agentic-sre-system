@@ -24,6 +24,12 @@ def _script(tmp_path, node, items):
 def test_extract_json_strips_fences():
     assert extract_json('```json\n{"a": 1}\n```') == {"a": 1}
     assert extract_json('noise {"a": {"b": 2}} trailing') == {"a": {"b": 2}}
+    # A wrapping fence is discarded by the brace slice, but fences embedded INSIDE a
+    # JSON string value must survive untouched (Phase 3's remediate node emits this
+    # shape for runbook_md) -- regression guard for stripping fences globally.
+    assert extract_json('{"runbook_md": "```bash\\nrestart\\n```"}') == {
+        "runbook_md": "```bash\nrestart\n```"
+    }
 
 
 async def test_happy_path_parses_and_audits(db, tmp_path):
