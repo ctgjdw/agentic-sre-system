@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from sre_gateway.audit import AuditWriter, set_flag
-from sre_gateway.db.models import Case, SignalRow
+from sre_gateway.db.models import AuditEvent, Case, SignalRow
 from sre_gateway.domain.signal import Signal
 from sre_gateway.intake.noise import IntakeDecision, NoiseControl
 from sre_gateway.intake.service import IngestResult, IntakeService
@@ -114,5 +114,11 @@ async def test_race_on_create_attaches_to_the_case_that_won(db):
         rows = (await s.execute(
             select(SignalRow).where(SignalRow.case_id == winner_id)
         )).scalars().all()
+        events = (await s.execute(
+            select(AuditEvent).where(AuditEvent.case_id == winner_id,
+                                     AuditEvent.event_type == "intake")
+        )).scalars().all()
     assert len(rows) == 1
     assert rows[0].is_primary is False and rows[0].attach_reason == "dedup"
+    # the race-driven attach must still be audited, like the normal attach path
+    assert len(events) == 1 and events[0].payload["reason"] == "dedup"

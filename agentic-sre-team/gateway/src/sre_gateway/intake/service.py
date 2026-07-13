@@ -69,6 +69,11 @@ class IntakeService:
                 s.add(self._row(signal, existing.id, primary=False, reason="dedup"))
                 await s.commit()
                 existing_id = existing.id
+            # The decision was "open" (NoiseControl logs nothing for that), so this race-driven
+            # attach would otherwise be unaudited; log it to match the normal attach path.
+            await self._audit.log("intake", actor="intake", case_id=existing_id,
+                                  fingerprint=signal.fingerprint, reason="dedup",
+                                  source=signal.source.value)
             return IngestResult("attach", existing_id, None)
 
         await self._audit.log("intake", actor="intake", case_id=case_id,

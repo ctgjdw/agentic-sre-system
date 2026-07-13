@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
-    BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text,
+    BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -46,6 +46,12 @@ class Case(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # At most one non-closed case per fingerprint; a fingerprint may recur once its case closes.
+    # Mirrors migration 0004 exactly so `alembic revision --autogenerate` sees no drift.
+    __table_args__ = (
+        Index("ix_cases_fingerprint_open", "fingerprint", unique=True,
+              postgresql_where=text("status <> 'closed'")),
+    )
 
 
 class SignalRow(Base):
