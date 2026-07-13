@@ -32,3 +32,9 @@ async def test_fake_embeddings_deterministic_unit_vectors():
     b = (await f.embed(["something else"]))[0]
     assert a1 == a2 and a1 != b and len(a1) == 768
     assert abs(sum(x * x for x in a1) - 1.0) < 1e-6
+
+
+def test_fake_chat_returns_scripted_model(tmp_path):
+    cfg = load_models_config(CONFIG_DIR / "models.fake.yaml")
+    model = ModelFactory(cfg, script_dir=tmp_path).chat("small", "triage")
+    assert type(model).__name__ == "ScriptedChatModel"
