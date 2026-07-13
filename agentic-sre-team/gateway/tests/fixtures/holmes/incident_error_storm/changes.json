@@ -1,0 +1,19 @@
+{
+  "analysis": "{\"summary\": \"PR #212 (merged 2026-07-11T13:58:04Z) adds an uncached per-user Keycloak Admin API call in the group-member listing path; explains the N+1 pattern behind the 5xx spike\", \"findings\": [{\"hid\": \"H2\", \"direction\": \"for\", \"note\": \"PR #212 adds per-user admin API call in group listing\", \"evidence_idx\": [0]}, {\"hid\": \"H2\", \"direction\": \"for\", \"note\": \"diff shows the new call has no batching or caching, issuing one keycloak-admin-api round trip per group member\", \"evidence_idx\": [1]}], \"proposed_hypotheses\": []}",
+  "tool_calls": [
+    {
+      "tool_name": "github_get_pull_request",
+      "toolset": "github",
+      "description": "recent merged PRs touching admin-server around incident onset",
+      "arguments": "repo:acme/admin-server base:main merged:2026-07-10..2026-07-11 sort:updated",
+      "result": "PR #212 'Show role badges in group member list' merged 2026-07-11T13:58:04Z by @maria.k; touches services/admin-server/src/groups/listing.py; adds a per-user call to the Keycloak Admin API to fetch role badges for each member returned by GET /api/v1/groups/{id}/members"
+    },
+    {
+      "tool_name": "github_get_diff",
+      "toolset": "github",
+      "description": "diff of PR #212 for the group listing handler",
+      "arguments": "gh pr diff 212 --repo acme/admin-server",
+      "result": "+ for member in members:\n+     roles = keycloak_admin_client.get_user_roles(member.user_id)  # new per-user call, no batching/caching\n  member.role_badges = roles"
+    }
+  ]
+}

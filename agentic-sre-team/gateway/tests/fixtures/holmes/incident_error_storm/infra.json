@@ -1,0 +1,19 @@
+{
+  "analysis": "{\"summary\": \"keycloak-db connection pool is at 98% capacity since 14:02 with queries queuing; container CPU/memory on keycloak-db and admin-server show no pressure, ruling out host resource saturation\", \"findings\": [{\"hid\": \"H1\", \"direction\": \"for\", \"note\": \"keycloak-db connections at 98/100 (98% of max_connections) since 14:02 vs a baseline of 18-22, with queries queued waiting for a free connection\", \"evidence_idx\": [1]}, {\"hid\": \"H3\", \"direction\": \"against\", \"note\": \"keycloak-db and admin-server container CPU/memory show no pressure (24-31% CPU, well under memory limits); rules out host resource saturation\", \"evidence_idx\": [0]}], \"proposed_hypotheses\": []}",
+  "tool_calls": [
+    {
+      "tool_name": "docker_container_stats",
+      "toolset": "docker",
+      "description": "resource stats for keycloak-db and admin-server containers",
+      "arguments": "docker stats --no-stream keycloak-db admin-server",
+      "result": "keycloak-db: cpu 31%, mem 512Mi/1Gi; admin-server: cpu 24%, mem 380Mi/512Mi - no memory pressure on either container"
+    },
+    {
+      "tool_name": "docker_exec",
+      "toolset": "docker",
+      "description": "keycloak-db active connection count from pg_stat_activity",
+      "arguments": "docker exec keycloak-db psql -c \"select count(*) from pg_stat_activity\"",
+      "result": "98/100 max_connections in use since 14:02 (baseline 18-22); pool at 98% capacity, 5 queries queued waiting for a connection"
+    }
+  ]
+}
