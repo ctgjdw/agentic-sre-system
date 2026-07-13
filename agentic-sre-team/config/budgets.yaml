@@ -1,0 +1,6 @@
+# Per-case envelope, checked between graph nodes. Breach parks the case
+# needs-human and pages Telegram. Per-agent usd_per_day lives in config/agents/.
+case:
+  tokens: 500000
+  tool_calls: 60
+  wall_clock_s: 900
