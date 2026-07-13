@@ -8,9 +8,24 @@ from sqlalchemy import text
 from testcontainers.postgres import PostgresContainer
 
 from sre_gateway.api.app import create_app
+from sre_gateway.audit import AuditWriter
+from sre_gateway.budget import BudgetEnforcer, load_budgets
+from sre_gateway.channels.log import LogChannel
 from sre_gateway.db.engine import make_engine, make_sessionmaker
 from sre_gateway.db.models import Base
+from sre_gateway.environment import load_environment
+from sre_gateway.graph.deps import GraphDeps
+from sre_gateway.holmes.client import HolmesClient
+from sre_gateway.llm.factory import ModelFactory, load_models_config
+from sre_gateway.llm.scripted import reset_scripts
+from sre_gateway.manifests import load_manifests
 from sre_gateway.settings import Settings
+
+# Shared by every graph-node test fixture (deps, and later deps_two_rounds /
+# pipeline_deps / chat_service): the repo root holding config/, and this node's
+# script fixture directory for the ScriptedChatModel fake profile.
+ROOT = Path(__file__).parents[2]
+SCRIPTS = Path(__file__).parent / "fixtures/scripts/incident_error_storm"
 
 
 def run_migrations(sync_url: str) -> None:
@@ -51,3 +66,17 @@ async def client(pg_url):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://t") as c:
             yield c
+
+
+@pytest.fixture
+def deps(db, pg_url) -> GraphDeps:
+    reset_scripts()
+    settings = Settings(database_url=pg_url, config_dir=ROOT / "config")
+    return GraphDeps(
+        settings=settings, sessionmaker=db, audit=AuditWriter(db),
+        models=ModelFactory(load_models_config(ROOT / "config/models.fake.yaml"),
+                            script_dir=SCRIPTS),
+        manifests=load_manifests(ROOT / "config/agents"),
+        budget=BudgetEnforcer(db, load_budgets(ROOT / "config/budgets.yaml")),
+        holmes=HolmesClient("http://unused"), channel=LogChannel(),
+        environment=load_environment(ROOT / "config/environment.yaml"))
