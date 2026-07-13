@@ -23,12 +23,10 @@ class GroupingEngine(Protocol):
 
 class NoiseControl:
     def __init__(self, sm: async_sessionmaker[AsyncSession], audit: AuditWriter, *,
-                 dedup_window_s: int = 1800, debounce_s: int = 60,
-                 burst_n: int = 5, burst_window_s: int = 60,
+                 debounce_s: int = 60, burst_n: int = 5, burst_window_s: int = 60,
                  grouping: GroupingEngine | None = None) -> None:
         self._sm = sm
         self._audit = audit
-        self.dedup_window_s = dedup_window_s
         self.debounce_s = debounce_s
         self.burst_n = burst_n
         self.burst_window_s = burst_window_s
@@ -53,6 +51,7 @@ class NoiseControl:
                     prior = (await s.execute(
                         select(func.count(AuditEvent.id)).where(
                             AuditEvent.ts >= now - timedelta(seconds=self.burst_window_s),
+                            AuditEvent.case_id == open_case.id,
                             AuditEvent.payload["fingerprint"].astext
                             == signal.fingerprint))).scalar_one()
                     reason = "burst" if prior + 1 >= self.burst_n else "debounce"

@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, HTTPException, Request
 
 from sre_gateway.intake.grafana import SIGNATURE_HEADER, normalize_grafana, verify_grafana_hmac
@@ -13,7 +15,6 @@ async def grafana_webhook(request: Request) -> dict:
         if not verify_grafana_hmac(settings.grafana_webhook_secret, body,
                                    request.headers.get(SIGNATURE_HEADER)):
             raise HTTPException(status_code=401, detail="bad signature")
-    import json
 
     payload = json.loads(body)
     results = []

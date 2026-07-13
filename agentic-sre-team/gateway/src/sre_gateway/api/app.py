@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from sqlalchemy import text
 
 from sre_gateway.api import cases, health, webhooks
 from sre_gateway.audit import AuditWriter
@@ -23,7 +24,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         grouping = CorrelationGrouping(load_grouping(settings.config_dir / "grouping.yaml"))
         noise = NoiseControl(app.state.sessionmaker, app.state.audit, grouping=grouping)
         app.state.intake = IntakeService(app.state.sessionmaker, app.state.audit, noise)
-        app.state.health["db"] = "ok"
+        try:
+            async with app.state.sessionmaker() as s:
+                await s.execute(text("SELECT 1"))
+            app.state.health["db"] = "ok"
+        except Exception:
+            # A down DB should surface as degraded health at request time, not a boot failure.
+            app.state.health["db"] = "degraded"
         yield
         await engine.dispose()
 
