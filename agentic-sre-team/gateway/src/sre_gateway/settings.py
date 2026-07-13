@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     config_dir: Path = Path("../config")
     models_profile: str = "local"  # local | airgap | fake
+    fake_script_dir: Path | None = None  # overrides models.fake.yaml script_dir
 
     holmes_url: str = "http://holmes:5050"
 

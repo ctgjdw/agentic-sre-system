@@ -1,0 +1,12 @@
+# Fake profile: scripted chat model + deterministic hash embeddings. No network.
+tiers:
+  small:    {provider: fake, model: fake-small, params: {}}
+  medium:   {provider: fake, model: fake-medium, params: {}}
+  frontier: {provider: fake, model: fake-frontier, params: {}}
+embeddings: {provider: fake, model: hash, dim: 768}
+holmes:
+  small: fake/small
+  medium: fake/medium
+  frontier: fake/frontier
+pricing: {}
+script_dir: tests/fixtures/scripts/incident_error_storm
