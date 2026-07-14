@@ -1,0 +1,15 @@
+[
+  {
+    "board": [
+      {"hid": "H1", "status": "open", "confidence": 0.31, "note": "pool elevated but explained by H2"},
+      {"hid": "H2", "status": "supported", "confidence": 0.78, "note": "N+1 admin api calls from PR #212"},
+      {"hid": "H3", "status": "refuted", "confidence": 0.05, "note": "host cpu flat at 22%"},
+      {"hid": "H4", "status": "open", "confidence": 0.1, "note": "no kong config change found"}
+    ],
+    "new_hypotheses": [],
+    "need_more": false,
+    "focus": null,
+    "failure_class": null,
+    "status_update": "Strongest hypothesis: N+1 Admin API call pattern from PR #212 (confidence 0.78). Full RCA next."
+  }
+]
