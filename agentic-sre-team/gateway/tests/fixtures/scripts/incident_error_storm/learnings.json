@@ -1,0 +1,8 @@
+[
+  {
+    "signal_signature": "admin-server 5xx spike via Kong after group-listing change",
+    "confirmed_root_cause": "N+1 Keycloak Admin API calls introduced by PR #212",
+    "decisive_queries": ["kong_http_requests_total 5xx ratio", "github recent PR diff scan"],
+    "false_leads": ["Host CPU saturation", "Kong upstream misconfiguration"]
+  }
+]
