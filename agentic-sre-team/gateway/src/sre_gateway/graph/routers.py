@@ -62,3 +62,11 @@ def route_after_gate_runbook(state: dict) -> str:
         return "park"
     decision = (state.get("gate_runbook") or {}).get("decision", "reject")
     return "publish" if decision in ("approve", "approve_with_edits") else "remediate"
+
+
+def route_after_remediate(state: dict) -> str:
+    return "park" if _halted(state) else "gate_runbook"
+
+
+def route_after_publish(state: dict) -> str:
+    return "park" if _halted(state) else END

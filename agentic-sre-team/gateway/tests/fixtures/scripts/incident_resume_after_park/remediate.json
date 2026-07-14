@@ -1,0 +1,13 @@
+[
+  {
+    "pre_checks": ["Confirm 5xx ratio still elevated on the Kong dashboard"],
+    "steps": [
+      {"title": "Feature-flag role badges off", "detail": "Set SHOW_ROLE_BADGES=false on admin-server", "command": "docker exec spectre-admin-server printenv SHOW_ROLE_BADGES"},
+      {"title": "Or revert PR #212", "detail": "git revert then redeploy admin-server", "command": null}
+    ],
+    "post_checks": ["5xx ratio back under 1% for 10m"],
+    "rollback": ["Re-enable the flag"],
+    "risk_notes_md": "Read-only mitigation; no data migration involved.",
+    "patch_files": null
+  }
+]

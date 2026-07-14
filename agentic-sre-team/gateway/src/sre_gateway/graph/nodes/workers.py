@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
+from sre_gateway.audit import get_flag
 from sre_gateway.db.models import EvidenceRow
 from sre_gateway.graph.deps import GraphDeps, stream_writer
 from sre_gateway.llm.json_call import extract_json
@@ -57,6 +58,16 @@ def make_worker(deps: GraphDeps, domain: str):
         case_id = state["case_id"]
         report = {"worker": domain, "summary": "", "findings": [],
                   "proposed_hypotheses": [], "degraded": False, "needs_infra": False}
+        # Workers run outside guarded() (they're plan's fan-out, not a sequential node),
+        # so without this check a case sitting at 99% budget still launches a full
+        # 4-worker Holmes round before synthesize's guard ever gets a chance to park it.
+        if await get_flag(deps.sessionmaker, "paused"):
+            report.update(degraded=True, error="paused")
+            return {"evidence": [], "worker_reports": [report]}
+        breach = await deps.budget.check_case(case_id)
+        if breach:
+            report.update(degraded=True, error=f"budget: {breach}")
+            return {"evidence": [], "worker_reports": [report]}
         try:
             ask = (
                 f"Domain: {domain}\n{SCOPES[domain]}\n\n"
@@ -90,13 +101,16 @@ def make_worker(deps: GraphDeps, domain: str):
             n = len(answer.tool_calls)
             evidence: list[dict] = []
             if n:
+                # Parse before burning counter slots: a parse failure here degrades the
+                # worker (below), and doing it before the UPDATE means that degradation
+                # never permanently gaps the case's eid sequence.
+                out = FindingsOut.model_validate(extract_json(answer.text))
                 async with deps.sessionmaker() as s:
                     start = (await s.execute(text(
                         "UPDATE cases SET evidence_counter = evidence_counter + :n "
                         "WHERE id = :id RETURNING evidence_counter"),
                         {"n": n, "id": case_id})).scalar_one() - n
                     await s.commit()
-                out = FindingsOut.model_validate(extract_json(answer.text))
                 idx_to_eid = {i: f"E{start + i + 1}" for i in range(n)}
                 links: dict[str, list] = {eid: [] for eid in idx_to_eid.values()}
                 findings = []

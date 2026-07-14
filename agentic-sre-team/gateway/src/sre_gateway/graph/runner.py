@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from collections import defaultdict
+from datetime import UTC, datetime
 
 from langgraph.types import Command
 from sqlalchemy import func, select, update
@@ -18,9 +19,19 @@ class CaseRunner:
         self.tasks: dict[str, asyncio.Task] = {}
         self.subscribers: dict[str, set[asyncio.Queue]] = defaultdict(set)
         self._seq: dict[str, int] = {}
+        self._seq_locks: dict[str, asyncio.Lock] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
 
     def running_count(self) -> int:
         return sum(1 for t in self.tasks.values() if not t.done())
+
+    def lock_for(self, case_id: str) -> asyncio.Lock:
+        """Per-case mutex serializing start/resume/decision against this case's run."""
+        return self._locks.setdefault(case_id, asyncio.Lock())
+
+    def is_running(self, case_id: str) -> bool:
+        task = self.tasks.get(case_id)
+        return task is not None and not task.done()
 
     def subscribe(self, case_id: str) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue(maxsize=1000)
@@ -31,19 +42,44 @@ class CaseRunner:
         self.subscribers[case_id].discard(q)
 
     async def start(self, case_id: str, initial: dict | None) -> None:
-        self.tasks[case_id] = asyncio.create_task(self._run(case_id, initial))
+        async with self.lock_for(case_id):
+            if initial is None:
+                initial = await self._resolve_initial(case_id)
+            self._launch(case_id, initial)
 
     async def resume(self, case_id: str, payload: dict) -> None:
-        self.tasks[case_id] = asyncio.create_task(
-            self._run(case_id, Command(resume=payload)))
+        async with self.lock_for(case_id):
+            self._launch(case_id, Command(resume=payload))
+
+    def _launch(self, case_id: str, graph_input) -> None:
+        """Spawn the background run. Caller must hold lock_for(case_id): this is where
+        the double-decision / double-resume race (Important 3) is closed - the
+        liveness check and the task creation happen as one atomic step under the lock,
+        instead of apply_decision's separate read-then-act status check racing the
+        gate's post-interrupt status flip."""
+        if self.is_running(case_id):
+            raise RuntimeError(f"case {case_id} already has an active run")
+        self.tasks[case_id] = asyncio.create_task(self._run(case_id, graph_input))
+
+    async def _resolve_initial(self, case_id: str) -> dict | None:
+        # None means "resume from checkpoint", but a case whose thread was never
+        # started (e.g. the process crashed between case-open and the first run) has
+        # no checkpoint at all: None input then reaches triage with an empty state and
+        # KeyErrors on case_id. Seed a fresh input in that case instead.
+        cfg = {"configurable": {"thread_id": case_id}}
+        state = await self.graph.aget_state(cfg)
+        return None if state.values else {"case_id": case_id}
 
     async def park(self, case_id: str, reason: str, actor: str) -> None:
         task = self.tasks.get(case_id)
         if task and not task.done():
             task.cancel()
         async with self.deps.sessionmaker() as s:
+            # Parked time is a human wait too: stamp waiting_since so a later resume
+            # excludes it from the active-time wall-clock budget.
             await s.execute(update(Case).where(Case.id == case_id).values(
-                status="needs_human", phase="parked", halt_reason=reason))
+                status="needs_human", phase="parked", halt_reason=reason,
+                waiting_since=datetime.now(UTC)))
             await s.commit()
         await self.deps.audit.log("budget", actor=actor, case_id=case_id, reason=reason,
                                   manual=True)
@@ -59,11 +95,19 @@ class CaseRunner:
 
     async def _next_seq(self, case_id: str) -> int:
         if case_id not in self._seq:
-            async with self.deps.sessionmaker() as s:
-                current = (await s.execute(
-                    select(func.max(CaseEvent.seq)).where(CaseEvent.case_id == case_id))
-                           ).scalar_one() or 0
-            self._seq[case_id] = current
+            # Two concurrent _emits for a case whose seq counter isn't cached yet would
+            # otherwise both read MAX(seq) and install the same base, then both hand out
+            # the same next seq - a collision on the unique (case_id, seq) index that
+            # parks the case. Guard just the first-init read-and-install with a lock;
+            # once cached, the += below has no await point so it can't interleave.
+            lock = self._seq_locks.setdefault(case_id, asyncio.Lock())
+            async with lock:
+                if case_id not in self._seq:
+                    async with self.deps.sessionmaker() as s:
+                        current = (await s.execute(
+                            select(func.max(CaseEvent.seq))
+                            .where(CaseEvent.case_id == case_id))).scalar_one() or 0
+                    self._seq[case_id] = current
         self._seq[case_id] += 1
         return self._seq[case_id]
 

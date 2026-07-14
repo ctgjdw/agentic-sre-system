@@ -12,8 +12,8 @@ from sre_gateway.graph.nodes.triage import make_triage
 from sre_gateway.graph.nodes.verify import make_verify
 from sre_gateway.graph.nodes.workers import make_worker
 from sre_gateway.graph.routers import (
-    fan_out, route_after_gate_rca, route_after_gate_runbook, route_after_synthesize,
-    route_after_triage, route_after_verify,
+    fan_out, route_after_gate_rca, route_after_gate_runbook, route_after_publish,
+    route_after_remediate, route_after_synthesize, route_after_triage, route_after_verify,
 )
 from sre_gateway.graph.state import CaseState
 
@@ -49,9 +49,10 @@ def build_graph(deps: GraphDeps, checkpointer=None):
                             {"rca": "rca", "gate_rca": "gate_rca", "park": "park"})
     g.add_conditional_edges("gate_rca", route_after_gate_rca,
                             {"remediate": "remediate", "rca": "rca", "park": "park"})
-    g.add_edge("remediate", "gate_runbook")
+    g.add_conditional_edges("remediate", route_after_remediate,
+                            {"gate_runbook": "gate_runbook", "park": "park"})
     g.add_conditional_edges("gate_runbook", route_after_gate_runbook,
                             {"publish": "publish", "remediate": "remediate", "park": "park"})
-    g.add_edge("publish", END)
+    g.add_conditional_edges("publish", route_after_publish, {END: END, "park": "park"})
     g.add_edge("park", END)
     return g.compile(checkpointer=checkpointer)

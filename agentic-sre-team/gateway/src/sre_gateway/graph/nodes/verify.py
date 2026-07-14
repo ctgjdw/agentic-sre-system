@@ -42,7 +42,12 @@ def make_verify(deps: GraphDeps):
                     for eid in sorted(_cited_eids(structured) - set(by_eid))]
 
         claims = structured.get("claims", [])
-        if claims and not failures:
+        if not claims and not failures:
+            # Zero claims means nothing was actually checked: checked == 0 with
+            # verified == True would be a silent pass through the gate, not a real one.
+            failures.append({"claim": "(none)",
+                             "reason": "RCA produced no verifiable claims"})
+        elif claims and not failures:
             tier = deps.manifests["verify"].tier
             model_id, pricing = deps.models.describe(tier)
             listing = "\n".join(

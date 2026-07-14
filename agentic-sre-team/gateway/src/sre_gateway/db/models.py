@@ -43,6 +43,13 @@ class Case(Base):
     tool_calls: Mapped[int] = mapped_column(Integer, default=0)
     spend_usd: Mapped[float] = mapped_column(Float, default=0.0)
     evidence_counter: Mapped[int] = mapped_column(Integer, default=0)
+    # Wall-clock budget must reflect only time the graph was actively running, not time
+    # spent waiting on a human (gate review or a parked escalation): waiting_since marks
+    # the start of a current wait (None while active), waited_seconds accumulates
+    # completed waits. See migration 0005.
+    waiting_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True),
+                                                            nullable=True)
+    waited_seconds: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

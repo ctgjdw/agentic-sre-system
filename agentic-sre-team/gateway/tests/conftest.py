@@ -28,6 +28,9 @@ from sre_gateway.testing import fake_holmes
 ROOT = Path(__file__).parents[2]
 SCRIPTS = Path(__file__).parent / "fixtures/scripts/incident_error_storm"
 SCRIPTS_TWO_ROUNDS = Path(__file__).parent / "fixtures/scripts/incident_two_rounds"
+# A second triage entry on top of incident_error_storm's, so a parked case's resume
+# (which re-enters the graph from START, re-running triage) has a scripted reply to draw.
+SCRIPTS_RESUME = Path(__file__).parent / "fixtures/scripts/incident_resume_after_park"
 
 
 def run_migrations(sync_url: str) -> None:
@@ -77,6 +80,26 @@ async def client(db, pg_url):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://t") as c:
             yield c
+        await holmes_http.aclose()
+
+
+@pytest.fixture
+async def client_resume(db, pg_url):
+    # Like `client`, but exposes `app` too (the resume test needs to swap in a tiny
+    # budget for the initial park, then restore it before resuming) and points at a
+    # script fixture with a second triage reply for the resumed run.
+    reset_scripts()
+    settings = Settings(database_url=pg_url, grafana_webhook_secret="topsecret",
+                        config_dir=ROOT / "config", models_profile="fake",
+                        fake_script_dir=SCRIPTS_RESUME)
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        holmes_http = AsyncClient(transport=ASGITransport(app=fake_holmes.app),
+                                  base_url="http://holmes")
+        app.state.deps.holmes = HolmesClient("http://holmes", client=holmes_http)
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://t") as c:
+            yield c, app
         await holmes_http.aclose()
 
 

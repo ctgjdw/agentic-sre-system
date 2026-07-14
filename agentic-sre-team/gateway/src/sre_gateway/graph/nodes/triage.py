@@ -87,9 +87,20 @@ def make_triage(deps: GraphDeps):
             await s.execute(update(Case).where(Case.id == case_id).values(
                 title=out.title, severity=out.severity, effort=out.effort,
                 failure_class=out.failure_class, status="open"))
+            # Upsert, not insert: a checkpoint replay after a mid-node crash, or a
+            # re-triage of a resumed parked case, re-runs triage against the same
+            # (case_id, hid) pairs. A plain insert would IntegrityError on the unique
+            # index instead of just re-seeding the board (mirrors synthesize's upsert).
             for h in hypotheses:
-                s.add(Hypothesis(case_id=case_id, hid=h["hid"], statement=h["statement"],
-                                 confidence=h["confidence"], round=0))
+                existing = (await s.execute(
+                    select(Hypothesis).where(Hypothesis.case_id == case_id,
+                                             Hypothesis.hid == h["hid"]))).scalar_one_or_none()
+                if existing:
+                    existing.statement = h["statement"]
+                    existing.status, existing.confidence, existing.round = "open", h["confidence"], 0
+                else:
+                    s.add(Hypothesis(case_id=case_id, hid=h["hid"], statement=h["statement"],
+                                     confidence=h["confidence"], round=0))
             await s.commit()
 
         await deps.channel.send(

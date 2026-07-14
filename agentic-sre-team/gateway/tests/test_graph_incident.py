@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from langgraph.types import Command
 from sqlalchemy import select
 
@@ -108,3 +110,31 @@ async def test_budget_breach_parks_case(deps, db, pg_url):
         assert parked.status == "needs_human"
         assert "budget" in (parked.halt_reason or "")
         assert any("parked" in m["text"] for m in deps.channel.sent)
+
+
+async def test_wall_clock_excludes_gate_review_time(deps, db, pg_url):
+    # A reviewer sitting on gate 1 for far longer than the wall-clock cap must not
+    # breach the budget: only time the graph is actively running counts.
+    case = await _seed(db)
+    async with make_checkpointer(pg_url) as saver:
+        graph = build_graph(deps, saver)
+        cfg = {"configurable": {"thread_id": case.id}}
+        await graph.ainvoke({"case_id": case.id, "kind": "incident"}, cfg)  # -> gate_rca
+
+        long_wait = timedelta(seconds=2000)
+        async with db() as s:
+            c = await s.get(Case, case.id)
+            c.created_at = datetime.now(UTC) - long_wait
+            c.waiting_since = datetime.now(UTC) - long_wait
+            await s.commit()
+        deps.budget = BudgetEnforcer(db, CaseBudget(tokens=500_000, tool_calls=60,
+                                                     wall_clock_s=900))
+
+        result = await graph.ainvoke(Command(resume=APPROVE), cfg)
+        assert "__interrupt__" in result  # reached gate 2, not parked on wall-clock
+        async with db() as s:
+            refreshed = await s.get(Case, case.id)
+        assert refreshed.status == "waiting_approval" and refreshed.phase == "gate_runbook"
+        # gate 1's review credited to waited_seconds; gate 2 has now started its own wait
+        assert refreshed.waited_seconds >= 1990
+        assert refreshed.waiting_since is not None

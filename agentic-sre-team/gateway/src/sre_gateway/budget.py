@@ -35,9 +35,12 @@ class BudgetEnforcer:
             return f"tokens {total_tokens}/{self.budget.tokens}"
         if case.tool_calls > self.budget.tool_calls:
             return f"tool_calls {case.tool_calls}/{self.budget.tool_calls}"
-        age = (datetime.now(UTC) - case.created_at).total_seconds()
-        if age > self.budget.wall_clock_s:
-            return f"wall_clock {int(age)}s/{self.budget.wall_clock_s}s"
+        # Exclude time spent waiting on a human (gate review, parked escalation): only
+        # active graph run time counts against the wall-clock budget.
+        active_age = (datetime.now(UTC) - case.created_at).total_seconds() \
+            - case.waited_seconds
+        if active_age > self.budget.wall_clock_s:
+            return f"wall_clock {int(active_age)}s/{self.budget.wall_clock_s}s"
         return None
 
     async def agent_spend_today(self, agent: str) -> float:

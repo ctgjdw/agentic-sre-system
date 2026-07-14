@@ -52,6 +52,27 @@ async def test_verify_fails_on_missing_eid_without_llm(deps, db):
     assert update["context_notes"]
 
 
+async def test_verify_fails_on_zero_claims(deps, db):
+    # An RCA with no claims at all must not sail through the gate as "verified": there
+    # is nothing to have checked, so `checked == 0` with `verified == True` would be a
+    # silent pass, not a real one.
+    case = await _seed(db, eids=())
+    structured = {"claims": [], "causal_chain": [], "timeline": [], "alternatives": [],
+                 "confidence": 0.5}
+    async with db() as s:
+        art = Artifact(case_id=case.id, kind="rca", version=1, body_md="## rca",
+                       structured=structured)
+        s.add(art)
+        await s.commit()
+        artifact_id = art.id
+    update = await make_verify(deps)({"case_id": case.id,
+                                      "rca": {"artifact_id": artifact_id, "version": 1,
+                                             "structured": structured}})
+    v = update["verification"]
+    assert v["verified"] is False and v["checked"] == 0
+    assert any("no verifiable claims" in f["reason"] for f in v["failures"])
+
+
 def test_render_puts_mitigation_first():
     from sre_gateway.graph.nodes.rca import RcaOut
 

@@ -1,6 +1,8 @@
 import asyncio
 import json
 import uuid
+from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -111,9 +113,13 @@ async def stream_case(request: Request, case_id: str, last_event_id: int | None 
         q = runner.subscribe(case_id)
         try:
             async with request.app.state.sessionmaker() as s:
+                # Replay ALL persisted events in seq order: a `.limit(200)` here would
+                # silently drop everything past it for a client reconnecting without a
+                # Last-Event-ID on a long-running case.
                 stmt = (select(CaseEvent).where(CaseEvent.case_id == case_id)
                         .order_by(CaseEvent.seq))
-                stmt = stmt.where(CaseEvent.seq > last) if last else stmt.limit(200)
+                if last:
+                    stmt = stmt.where(CaseEvent.seq > last)
                 replayed = last
                 for row in (await s.execute(stmt)).scalars():
                     replayed = max(replayed, row.seq)
@@ -146,7 +152,7 @@ async def stream_case(request: Request, case_id: str, last_event_id: int | None 
 
 class DecisionBody(BaseModel):
     gate: str
-    decision: str
+    decision: Literal["approve", "approve_with_edits", "reject"]
     decided_by: str
     channel: str = "ui"
     edited_body_md: str | None = None
@@ -180,16 +186,37 @@ class ResumeBody(BaseModel):
 @router.post("/cases/{case_id}/resume")
 async def resume_case(request: Request, case_id: str, body: ResumeBody) -> dict:
     sm = request.app.state.sessionmaker
-    async with sm() as s:
-        case = await s.get(Case, case_id)
+    runner = request.app.state.runner
+    # Graph parks run park -> END, so the thread is COMPLETE, not interrupted: a plain
+    # ainvoke(None) on it re-drives nothing. Instead start a fresh, non-None run that
+    # re-enters from START (a parked case gets re-triaged) - verified empirically on
+    # langgraph 1.2.9 that a fresh input on a completed thread restarts execution.
+    # "halt": None is required in that input: guarded() only ever *sets* halt on a
+    # breach, it's never cleared on success, so the persisted breach would otherwise
+    # make every router's _halted() check true forever and re-park immediately.
+    async with runner.lock_for(case_id):
+        async with sm() as s:
+            case = await s.get(Case, case_id)
         if case is None:
             raise HTTPException(404)
-        case.status = "open"
-        case.halt_reason = None
-        await s.commit()
-    await request.app.state.audit.log("budget", actor=body.actor, case_id=case_id,
-                                      manual=True, action="resume")
-    await request.app.state.runner.start(case_id, None)
+        if case.status != "needs_human":
+            raise HTTPException(409, detail=f"case is {case.status}, not needs_human")
+        async with sm() as s:
+            case = await s.get(Case, case_id)
+            case.status, case.halt_reason = "open", None
+            # Parked time doesn't count against the wall-clock budget: credit it to
+            # waited_seconds now that the human wait is over, same as a gate resume.
+            if case.waiting_since is not None:
+                case.waited_seconds += int(
+                    (datetime.now(UTC) - case.waiting_since).total_seconds())
+                case.waiting_since = None
+            await s.commit()
+        await request.app.state.audit.log("budget", actor=body.actor, case_id=case_id,
+                                          manual=True, action="resume")
+        try:
+            runner._launch(case_id, {"case_id": case_id, "halt": None})
+        except RuntimeError as err:
+            raise HTTPException(409, detail=str(err)) from err
     return {"ok": True}
 
 

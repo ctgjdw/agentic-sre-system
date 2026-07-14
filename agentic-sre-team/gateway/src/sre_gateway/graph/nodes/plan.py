@@ -16,7 +16,9 @@ def make_plan(deps: GraphDeps):
             await s.commit()
         writer({"type": "plan", "workers": workers,
                 "effort": state.get("effort", "medium"), "round": this_round})
-        return {"round": this_round, "need_more": False,
-                "worker_reports": [], "evidence": []}
+        # worker_reports/evidence use an operator.add reducer, so returning [] here is a
+        # no-op, not a reset - cross-round accumulation is intentional: synthesize needs
+        # every round's evidence and reports to re-evaluate the hypothesis board.
+        return {"round": this_round, "need_more": False}
 
     return plan

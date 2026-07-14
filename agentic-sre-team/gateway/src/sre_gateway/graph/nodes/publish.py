@@ -32,9 +32,10 @@ def make_publish(deps: GraphDeps):
         rca_body = rca.body_edited_md or rca.body_md
         rb_body = runbook.body_edited_md or runbook.body_md
 
-        await deps.channel.send(f"{display} RCA published:\n{rca_body[:3000]}")
-        await deps.channel.send(f"{display} runbook published:\n{rb_body[:3000]}")
-
+        # Index the runbook and write the learning FIRST, then announce, then close.
+        # Announcing (or closing) before this can complete means a downstream failure
+        # parks a case the channel already told everyone was done, and a retry after
+        # the fix re-indexes a duplicate runbook.
         await index_runbook(deps.sessionmaker, deps.models.embed,
                             title=f"{display}: {state.get('title', '')}",
                             body_md=rb_body, source_case_id=case_id,
@@ -58,6 +59,9 @@ def make_publish(deps: GraphDeps):
                              confirmed_root_cause=out.confirmed_root_cause,
                              decisive_queries=out.decisive_queries,
                              false_leads=out.false_leads)
+
+        await deps.channel.send(f"{display} RCA published:\n{rca_body[:3000]}")
+        await deps.channel.send(f"{display} runbook published:\n{rb_body[:3000]}")
 
         async with deps.sessionmaker() as s:
             await s.execute(update(Case).where(Case.id == case_id).values(

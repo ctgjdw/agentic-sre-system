@@ -1,3 +1,4 @@
+import pytest
 from sqlalchemy import select
 
 from sre_gateway.db.models import Artifact, Case, CaseLearning, Runbook
@@ -50,3 +51,31 @@ async def test_publish_closes_indexes_and_learns(deps, db):
     assert len(runbooks) == 1 and runbooks[0].source_case_id == case.id
     assert len(learnings) == 1 and "N+1" in learnings[0].confirmed_root_cause
     assert any("published" in m["text"].lower() for m in deps.channel.sent)
+
+
+async def test_publish_indexes_and_learns_before_announcing_and_closing(deps, db, monkeypatch):
+    # Indexing/learning must happen BEFORE the channel announce and the close: if the
+    # learnings LLM call fails after Telegram already saw "published", the channel is
+    # lying about the case being done, and a retry re-indexes a duplicate runbook.
+    case, rca_art = await _seed_with_rca(db, deps)
+    rb_update = await make_remediate(deps)({
+        "case_id": case.id, "kind": "incident", "title": case.title,
+        "rca": {"artifact_id": rca_art.id, "version": 1, "structured": rca_art.structured}})
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("learnings llm down")
+
+    monkeypatch.setattr("sre_gateway.graph.nodes.publish.call_llm_json", _boom)
+
+    with pytest.raises(RuntimeError):
+        await make_publish(deps)({
+            "case_id": case.id, "display_id": "CASE-0001", "title": case.title,
+            "hypotheses": [{"hid": "H2", "statement": "n+1", "status": "supported",
+                            "confidence": 0.8}],
+            "rca": {"artifact_id": rca_art.id, "version": 1, "structured": rca_art.structured},
+            "runbook": rb_update["runbook"]})
+
+    assert deps.channel.sent == []  # nothing announced before the failure
+    async with db() as s:
+        refreshed = await s.get(Case, case.id)
+    assert refreshed.status != "closed" and refreshed.closed_at is None

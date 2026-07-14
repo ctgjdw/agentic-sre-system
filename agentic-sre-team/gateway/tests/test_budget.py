@@ -39,6 +39,34 @@ async def test_wall_clock_breach(db):
     assert breach and breach.startswith("wall_clock")
 
 
+async def test_wall_clock_excludes_waited_seconds(db):
+    # Same 2000s-old case as above, but almost all of that time was spent waiting on a
+    # human (gate review / parked escalation): active time is well under the cap, so
+    # this must NOT breach even though naive (now - created_at) would.
+    case_id = await _case(db)
+    async with db() as s:
+        c = await s.get(Case, case_id)
+        c.created_at = datetime.now(UTC) - timedelta(seconds=2000)
+        c.waited_seconds = 1950
+        await s.commit()
+    enforcer = BudgetEnforcer(db, load_budgets(CONFIG))
+    assert await enforcer.check_case(case_id) is None
+
+
+async def test_wall_clock_breach_on_active_time_despite_prior_wait(db):
+    # The wait credit doesn't mask genuinely excessive active time: 2000s old, 1000s of
+    # which was a wait, leaves ~1000s active - still over the default 900s cap.
+    case_id = await _case(db)
+    async with db() as s:
+        c = await s.get(Case, case_id)
+        c.created_at = datetime.now(UTC) - timedelta(seconds=2000)
+        c.waited_seconds = 1000
+        await s.commit()
+    enforcer = BudgetEnforcer(db, load_budgets(CONFIG))
+    breach = await enforcer.check_case(case_id)
+    assert breach and breach.startswith("wall_clock")
+
+
 async def test_agent_daily_spend_and_cap(db):
     audit = AuditWriter(db)
     await audit.log_llm(None, node="rca", model_id="m", tokens_in=1, tokens_out=1,

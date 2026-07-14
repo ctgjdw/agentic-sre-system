@@ -101,8 +101,12 @@ def make_synthesize(deps: GraphDeps):
             await deps.channel.send(
                 f"Early findings on {state.get('display_id', case_id)}: {out.status_update}")
 
+        # context_notes is an operator.add reducer: only hand back notes not already
+        # accumulated in state, or a note re-queried every round bloats the prompt
+        # with duplicates instead of being added once.
+        already = set(state.get("context_notes", []))
         update: dict = {"hypotheses": merged, "need_more": out.need_more,
-                        "context_notes": list(notes)}
+                        "context_notes": [n for n in notes if n not in already]}
         if out.failure_class:
             update["failure_class"] = out.failure_class
         return update
