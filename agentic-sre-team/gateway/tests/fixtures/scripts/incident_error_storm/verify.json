@@ -1,0 +1,5 @@
+[
+  {"results": [{"idx": 0, "supported": true, "reason": "excerpt shows 18% at 14:02"},
+               {"idx": 1, "supported": true, "reason": "cpu flat in E2"}]},
+  {"results": [{"idx": 0, "supported": true, "reason": "ok"}]}
+]
