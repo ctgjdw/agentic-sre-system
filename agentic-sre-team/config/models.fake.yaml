@@ -8,5 +8,8 @@ holmes:
   small: fake/small
   medium: fake/medium
   frontier: fake/frontier
-pricing: {}
+pricing:                    # usd per 1M tokens (fake profile: nominal, for spend/governance)
+  fake-small:    {input: 0.30, output: 2.50}
+  fake-medium:   {input: 0.30, output: 2.50}
+  fake-frontier: {input: 3.00, output: 15.00}
 script_dir: tests/fixtures/scripts/incident_error_storm

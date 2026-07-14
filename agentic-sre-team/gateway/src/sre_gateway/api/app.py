@@ -3,12 +3,22 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy import text
 
-from sre_gateway.api import cases, health, webhooks
+from sre_gateway.api import activity, cases, governance, health, webhooks
 from sre_gateway.audit import AuditWriter
+from sre_gateway.budget import BudgetEnforcer, load_budgets
+from sre_gateway.channels.log import LogChannel
 from sre_gateway.db.engine import make_engine, make_sessionmaker
+from sre_gateway.environment import load_environment
+from sre_gateway.graph import make_checkpointer
+from sre_gateway.graph.build import build_graph
+from sre_gateway.graph.deps import GraphDeps
+from sre_gateway.graph.runner import CaseRunner
+from sre_gateway.holmes.client import HolmesClient
 from sre_gateway.intake.grouping import CorrelationGrouping, load_grouping
 from sre_gateway.intake.noise import NoiseControl
 from sre_gateway.intake.service import IntakeService
+from sre_gateway.llm.factory import ModelFactory, load_models_config
+from sre_gateway.manifests import load_manifests
 from sre_gateway.settings import Settings, get_settings
 
 
@@ -21,17 +31,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = engine
         app.state.sessionmaker = make_sessionmaker(engine)
         app.state.audit = AuditWriter(app.state.sessionmaker)
+
+        models = ModelFactory(load_models_config(settings.models_config_path),
+                              script_dir=settings.fake_script_dir)
+        manifests = load_manifests(settings.config_dir / "agents")
+        environment = load_environment(settings.config_dir / "environment.yaml")
+        budget = BudgetEnforcer(app.state.sessionmaker,
+                                load_budgets(settings.config_dir / "budgets.yaml"))
+        holmes = HolmesClient(settings.holmes_url)
+        channel = LogChannel()
+        deps = GraphDeps(settings=settings, sessionmaker=app.state.sessionmaker,
+                         audit=app.state.audit, models=models, manifests=manifests,
+                         budget=budget, holmes=holmes, channel=channel,
+                         environment=environment)
+        app.state.deps = deps
+
         grouping = CorrelationGrouping(load_grouping(settings.config_dir / "grouping.yaml"))
         noise = NoiseControl(app.state.sessionmaker, app.state.audit, grouping=grouping)
-        app.state.intake = IntakeService(app.state.sessionmaker, app.state.audit, noise)
-        try:
-            async with app.state.sessionmaker() as s:
-                await s.execute(text("SELECT 1"))
-            app.state.health["db"] = "ok"
-        except Exception:
-            # A down DB should surface as degraded health at request time, not a boot failure.
-            app.state.health["db"] = "degraded"
-        yield
+
+        async with make_checkpointer(settings.database_url) as checkpointer:
+            graph = build_graph(deps, checkpointer)
+            runner = CaseRunner(deps, graph)
+            app.state.runner = runner
+
+            async def _on_opened(case_id: str) -> None:
+                # triage re-reads kind/title/everything from the case row, so the
+                # hook only needs the id.
+                await runner.start(case_id, {"case_id": case_id})
+
+            app.state.intake = IntakeService(app.state.sessionmaker, app.state.audit, noise,
+                                             on_case_opened=_on_opened)
+
+            try:
+                async with app.state.sessionmaker() as s:
+                    await s.execute(text("SELECT 1"))
+                app.state.health["db"] = "ok"
+            except Exception:
+                # A down DB should surface as degraded health at request time, not a boot failure.
+                app.state.health["db"] = "degraded"
+
+            await runner.relaunch_open_cases()
+            yield
+            await runner.stop()
         await engine.dispose()
 
     app = FastAPI(title="sre-gateway", lifespan=lifespan)
@@ -40,4 +81,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router, prefix="/api")
     app.include_router(webhooks.router, prefix="/api")
     app.include_router(cases.router, prefix="/api")
+    app.include_router(governance.router, prefix="/api")
+    app.include_router(activity.router, prefix="/api")
     return app

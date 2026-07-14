@@ -38,11 +38,19 @@ def test_non_fake_tier_missing_pricing_raises():
 
 
 def test_fake_profile_tiers_are_exempt_from_pricing():
-    # The fake profile ships pricing: {} for every tier (all provider: fake) -- must
-    # stay legal, since it is the no-network test/dev profile.
+    # The fake profile's tiers are all provider: fake, so ModelFactory's pricing-entry
+    # check (which only applies to non-fake providers) must not raise even though the
+    # fake model ids aren't "real" models.
     cfg = load_models_config(CONFIG_DIR / "models.fake.yaml")
-    assert cfg.pricing == {}
     ModelFactory(cfg)  # must not raise
+
+
+def test_fake_profile_has_nominal_pricing_for_spend_tracking():
+    # Unlike other no-op fake-profile config, pricing is populated (not {}): the
+    # governance dashboard and BudgetEnforcer.agent_spend_today need nonzero spend
+    # even on the no-network fake profile, or every agent always reads $0/day.
+    cfg = load_models_config(CONFIG_DIR / "models.fake.yaml")
+    assert cfg.pricing["fake-small"] == {"input": 0.30, "output": 2.50}
 
 
 async def test_fake_embeddings_deterministic_unit_vectors():

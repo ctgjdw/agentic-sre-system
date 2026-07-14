@@ -60,14 +60,24 @@ async def db(pg_url):
 
 
 @pytest.fixture
-async def client(pg_url):
+async def client(db, pg_url):
+    # Depending on `db` (not just `pg_url`) forces the TRUNCATE + case_display_seq reset to
+    # run BEFORE the app lifespan starts, so relaunch_open_cases() at startup never picks up
+    # a stale open case from a previous test's background run, and display_ids are
+    # deterministic (CASE-0001).
+    reset_scripts()
     settings = Settings(database_url=pg_url, grafana_webhook_secret="topsecret",
-                        config_dir=Path(__file__).parents[2] / "config")
+                        config_dir=ROOT / "config", models_profile="fake",
+                        fake_script_dir=SCRIPTS)
     app = create_app(settings)
     async with app.router.lifespan_context(app):
+        holmes_http = AsyncClient(transport=ASGITransport(app=fake_holmes.app),
+                                  base_url="http://holmes")
+        app.state.deps.holmes = HolmesClient("http://holmes", client=holmes_http)
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://t") as c:
             yield c
+        await holmes_http.aclose()
 
 
 @pytest.fixture
