@@ -27,6 +27,7 @@ from sre_gateway.testing import fake_holmes
 # script fixture directory for the ScriptedChatModel fake profile.
 ROOT = Path(__file__).parents[2]
 SCRIPTS = Path(__file__).parent / "fixtures/scripts/incident_error_storm"
+SCRIPTS_TWO_ROUNDS = Path(__file__).parent / "fixtures/scripts/incident_two_rounds"
 
 
 def run_migrations(sync_url: str) -> None:
@@ -79,6 +80,22 @@ async def deps(db, pg_url) -> GraphDeps:
             settings=settings, sessionmaker=db, audit=AuditWriter(db),
             models=ModelFactory(load_models_config(ROOT / "config/models.fake.yaml"),
                                 script_dir=SCRIPTS),
+            manifests=load_manifests(ROOT / "config/agents"),
+            budget=BudgetEnforcer(db, load_budgets(ROOT / "config/budgets.yaml")),
+            holmes=HolmesClient("http://holmes", client=holmes_http), channel=LogChannel(),
+            environment=load_environment(ROOT / "config/environment.yaml"))
+
+
+@pytest.fixture
+async def deps_two_rounds(db, pg_url) -> GraphDeps:
+    reset_scripts()
+    settings = Settings(database_url=pg_url, config_dir=ROOT / "config")
+    transport = ASGITransport(app=fake_holmes.app)
+    async with AsyncClient(transport=transport, base_url="http://holmes") as holmes_http:
+        yield GraphDeps(
+            settings=settings, sessionmaker=db, audit=AuditWriter(db),
+            models=ModelFactory(load_models_config(ROOT / "config/models.fake.yaml"),
+                                script_dir=SCRIPTS_TWO_ROUNDS),
             manifests=load_manifests(ROOT / "config/agents"),
             budget=BudgetEnforcer(db, load_budgets(ROOT / "config/budgets.yaml")),
             holmes=HolmesClient("http://holmes", client=holmes_http), channel=LogChannel(),

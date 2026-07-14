@@ -1,0 +1,14 @@
+[
+  {"board": [{"hid": "H1", "status": "open", "confidence": 0.45, "note": "pool elevated, cause unclear"},
+             {"hid": "H2", "status": "open", "confidence": 0.5, "note": "needs the PR diff correlation"},
+             {"hid": "H3", "status": "refuted", "confidence": 0.05, "note": "cpu flat"},
+             {"hid": "H4", "status": "open", "confidence": 0.1, "note": ""}],
+   "new_hypotheses": [], "need_more": true, "focus": "correlate PR merge time with symptom onset",
+   "failure_class": null, "status_update": "Evidence inconclusive; running one more bounded round."},
+  {"board": [{"hid": "H1", "status": "open", "confidence": 0.31, "note": "explained by H2"},
+             {"hid": "H2", "status": "supported", "confidence": 0.78, "note": "n+1 confirmed"},
+             {"hid": "H3", "status": "refuted", "confidence": 0.05, "note": ""},
+             {"hid": "H4", "status": "refuted", "confidence": 0.05, "note": ""}],
+   "new_hypotheses": [], "need_more": false, "focus": null,
+   "failure_class": null, "status_update": "N+1 admin API calls confirmed (0.78). RCA next."}
+]

@@ -1,0 +1,16 @@
+[
+  {
+    "is_incident": true,
+    "title": "Error rate spike on admin-server /api/v1/users",
+    "severity": 2,
+    "effort": "medium",
+    "failure_class": null,
+    "hypotheses": [
+      "keycloak-db connection pool exhaustion from traffic increase",
+      "N+1 Keycloak Admin API calls introduced by a recent PR inflate latency under load",
+      "Host CPU saturation on the Docker host",
+      "Kong upstream misconfiguration dropping healthy targets"
+    ],
+    "canned_reply": null
+  }
+]

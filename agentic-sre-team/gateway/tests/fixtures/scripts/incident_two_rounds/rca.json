@@ -1,0 +1,24 @@
+[
+  {
+    "mitigation_md": "Revert PR #212 OR feature-flag role badges off. [E1]",
+    "causal_chain": [
+      {"step": "PR #212 adds per-user Admin API call in group listing", "eids": ["E1"]},
+      {"step": "N+1 Keycloak Admin API calls inflate latency under load", "eids": ["E2"]}
+    ],
+    "blast_radius_md": "All admin-console user listing routes; login unaffected.",
+    "timeline": [{"ts": "2026-07-11T14:02:00Z", "text": "5xx ratio exceeds 5%", "eids": ["E1"]}],
+    "alternatives": [
+      {"statement": "Host CPU saturation", "why_rejected": "host CPU flat at 22%", "eids": ["E2"]}
+    ],
+    "monitoring_gaps_md": "No per-route Admin API call-count metric.",
+    "claims": [
+      {"text": "The 5xx spike began at 14:02 and correlates with PR #212", "eids": ["E1"]},
+      {"text": "Host CPU stayed flat, ruling out saturation", "eids": ["E2"]}
+    ],
+    "confidence": 0.81
+  },
+  { "mitigation_md": "Revert PR #212.", "causal_chain": [{"step": "same as v1", "eids": ["E1"]}],
+    "blast_radius_md": "same", "timeline": [], "alternatives": [],
+    "monitoring_gaps_md": "", "claims": [{"text": "5xx spike correlates with PR #212", "eids": ["E1"]}],
+    "confidence": 0.8 }
+]
