@@ -20,6 +20,7 @@ from sre_gateway.llm.factory import ModelFactory, load_models_config
 from sre_gateway.llm.scripted import reset_scripts
 from sre_gateway.manifests import load_manifests
 from sre_gateway.settings import Settings
+from sre_gateway.testing import fake_holmes
 
 # Shared by every graph-node test fixture (deps, and later deps_two_rounds /
 # pipeline_deps / chat_service): the repo root holding config/, and this node's
@@ -69,14 +70,16 @@ async def client(pg_url):
 
 
 @pytest.fixture
-def deps(db, pg_url) -> GraphDeps:
+async def deps(db, pg_url) -> GraphDeps:
     reset_scripts()
     settings = Settings(database_url=pg_url, config_dir=ROOT / "config")
-    return GraphDeps(
-        settings=settings, sessionmaker=db, audit=AuditWriter(db),
-        models=ModelFactory(load_models_config(ROOT / "config/models.fake.yaml"),
-                            script_dir=SCRIPTS),
-        manifests=load_manifests(ROOT / "config/agents"),
-        budget=BudgetEnforcer(db, load_budgets(ROOT / "config/budgets.yaml")),
-        holmes=HolmesClient("http://unused"), channel=LogChannel(),
-        environment=load_environment(ROOT / "config/environment.yaml"))
+    transport = ASGITransport(app=fake_holmes.app)
+    async with AsyncClient(transport=transport, base_url="http://holmes") as holmes_http:
+        yield GraphDeps(
+            settings=settings, sessionmaker=db, audit=AuditWriter(db),
+            models=ModelFactory(load_models_config(ROOT / "config/models.fake.yaml"),
+                                script_dir=SCRIPTS),
+            manifests=load_manifests(ROOT / "config/agents"),
+            budget=BudgetEnforcer(db, load_budgets(ROOT / "config/budgets.yaml")),
+            holmes=HolmesClient("http://holmes", client=holmes_http), channel=LogChannel(),
+            environment=load_environment(ROOT / "config/environment.yaml"))

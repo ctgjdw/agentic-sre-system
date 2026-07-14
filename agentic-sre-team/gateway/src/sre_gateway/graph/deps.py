@@ -27,13 +27,20 @@ class GraphDeps:
     environment: EnvironmentConfig
 
 
+def stream_writer():
+    try:
+        from langgraph.config import get_stream_writer
+
+        return get_stream_writer()
+    except RuntimeError:
+        return lambda _event: None
+
+
 def guarded(deps: GraphDeps, name: str, fn):
     """Between-nodes governance: pause + budget checks run before every node."""
 
     async def wrapped(state: dict):
-        from langgraph.config import get_stream_writer
-
-        writer = get_stream_writer()
+        writer = stream_writer()
         case_id = state.get("case_id", "")
         if await get_flag(deps.sessionmaker, "paused"):
             return {"halt": {"reason": "paused", "at_node": name}}
