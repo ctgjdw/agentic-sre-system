@@ -21,10 +21,14 @@ services:
   gateway:
     build: ./gateway
     container_name: sre-gateway
+    command: ["sh", "-c", "alembic upgrade head && uvicorn sre_gateway.main:app --host 0.0.0.0 --port 8080"]
     env_file: .env
     environment:
       SRE_DATABASE_URL: postgresql+asyncpg://sre:${SRE_PG_PASSWORD:-sre}@postgres:5432/sre
       SRE_CONFIG_DIR: /config
+      SRE_MODELS_PROFILE: ${SRE_MODELS_PROFILE:-local}
+      SRE_HOLMES_URL: ${SRE_HOLMES_URL:-http://holmes:5050}
+      SRE_FAKE_SCRIPT_DIR: ${SRE_FAKE_SCRIPT_DIR:-}
     volumes:
       - ./config:/config:ro
     ports:
@@ -32,6 +36,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  fake-holmes:
+    profiles: ["fake"]
+    build: ./gateway
+    container_name: sre-fake-holmes
+    command: ["python", "-m", "sre_gateway.testing.fake_holmes"]
+    environment:
+      FAKE_HOLMES_DIR: /app/tests/fixtures/holmes/incident_error_storm
+    ports:
+      - "5050:5050"
 
 volumes:
   sre-pg:

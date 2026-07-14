@@ -25,3 +25,9 @@ lint:
 
 migrate:
 	cd gateway && uv run alembic upgrade head
+
+smoke:
+	SRE_MODELS_PROFILE=fake SRE_HOLMES_URL=http://fake-holmes:5050 \
+	SRE_FAKE_SCRIPT_DIR=/app/tests/fixtures/scripts/incident_error_storm \
+	$(COMPOSE) --profile fake up -d --build
+	cd gateway && uv run python ../scripts/smoke.py
