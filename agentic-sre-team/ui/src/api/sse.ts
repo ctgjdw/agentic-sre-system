@@ -30,6 +30,12 @@ export function useCaseStream(caseId: string): { events: StreamEvent[]; connecte
 
   useEffect(() => {
     setEvents([]);
+    // jsdom (test env) has no EventSource; degrade to a disconnected, empty stream so
+    // screens that use this hook still render in unit tests.
+    if (typeof EventSource === "undefined") {
+      setConnected(false);
+      return;
+    }
     const source = new EventSource(`/api/cases/${caseId}/stream`);
     sourceRef.current = source;
     source.onopen = () => setConnected(true);

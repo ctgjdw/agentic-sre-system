@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { TopBar } from "./components/TopBar";
+import { CaseDetailScreen } from "./screens/CaseDetailScreen";
 import { QueueScreen } from "./screens/QueueScreen";
 import "./theme.css";
 
@@ -15,7 +16,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Navigate to="/cases" replace />} />
             <Route path="/cases" element={<QueueScreen />} />
-            <Route path="/cases/:id" element={<div>detail (Tasks 29-30)</div>} />
+            <Route path="/cases/:id" element={<CaseDetailScreen />} />
             <Route path="/cases/:id/artifact/:kind" element={<div>artifact (Task 31)</div>} />
             <Route path="/governance" element={<div>governance (Task 32)</div>} />
             <Route path="/chat" element={<div>chat (Task 45)</div>} />
