@@ -41,23 +41,39 @@ services:
         condition: service_healthy
 
   holmes:
+    # Real evidence sidecar. Behind the "live" profile so `--profile fake`/`make smoke`
+    # (which run fake-holmes on the same port 5050) and plain `compose config` on a
+    # clean checkout are never affected by it.
+    profiles: ["live"]
     image: ${HOLMES_IMAGE}
     container_name: sre-holmes
     entrypoint: ["python", "server.py"]
-    env_file: .env
+    # Least-privilege: this container executes model-directed tools and exposes an
+    # unauthenticated API, so it gets ONLY the vars its read-only toolset manifest needs -
+    # never the full .env (no Telegram/GitHub/GitLab/PG/webhook/LangSmith secrets).
+    # Values are interpolated from ./.env at compose time; empty defaults keep boot green.
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /creds/adc.json
-      VERTEXAI_PROJECT: ${GOOGLE_CLOUD_PROJECT}
-      VERTEXAI_LOCATION: ${GOOGLE_CLOUD_LOCATION}
+      VERTEXAI_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
+      VERTEXAI_LOCATION: ${GOOGLE_CLOUD_LOCATION:-}
+      SRE_GRAFANA_URL: ${SRE_GRAFANA_URL:-}
+      GRAFANA_PROM_URL: ${GRAFANA_PROM_URL:-}
+      GRAFANA_PROM_AUTH: ${GRAFANA_PROM_AUTH:-}
+      GRAFANA_SA_TOKEN: ${GRAFANA_SA_TOKEN:-}
+      GRAFANA_TEMPO_DS_UID: ${GRAFANA_TEMPO_DS_UID:-}
+      GRAFANA_MCP_URL: ${GRAFANA_MCP_URL:-}
+      TARGET_OPENSEARCH_URL: ${TARGET_OPENSEARCH_URL:-}
+      TARGET_PG_RO_URL: ${TARGET_PG_RO_URL:-}
     volumes:
       - ./config/holmes.yaml:/root/.holmes/config.yaml:ro
-      - ${GOOGLE_APPLICATION_CREDENTIALS}:/creds/adc.json:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Default to /dev/null so a blank var (as in .env.example) doesn't make the whole
+      # compose file invalid. No docker.sock mount: `:ro` does not restrict a socket
+      # (root-equivalent), and the docker/core toolset is disabled anyway.
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:/creds/adc.json:ro
     ports:
-      - "5050:5050"
-    networks:
-      - default
-      - spectre
+      - "127.0.0.1:5050:5050"   # loopback only: unauthenticated API proxying live creds
+    # For Spectre-internal evidence (opensearch/PG reached by container hostname), also
+    # attach this service to the target env's network (e.g. spectre_default).
 
   fake-holmes:
     profiles: ["fake"]
@@ -68,11 +84,6 @@ services:
       FAKE_HOLMES_DIR: /app/tests/fixtures/holmes/incident_error_storm
     ports:
       - "5050:5050"
-
-networks:
-  spectre:
-    external: true
-    name: spectre_default
 
 volumes:
   sre-pg:

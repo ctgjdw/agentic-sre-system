@@ -3,7 +3,11 @@ import hmac
 import json
 from pathlib import Path
 
-from sre_gateway.intake.grafana import normalize_grafana, verify_grafana_hmac
+from sre_gateway.intake.grafana import (
+    labels_fingerprint,
+    normalize_grafana,
+    verify_grafana_hmac,
+)
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures/grafana_webhook.json").read_text())
 
@@ -14,7 +18,8 @@ def test_normalize_produces_one_signal_per_firing_alert():
     s = signals[0]
     assert s.source == "grafana"
     assert s.kind == "incident"
-    assert s.fingerprint == "grafana:7ea491214dce4a412d22341d42151040"
+    # Fingerprint is the shared label-based one (webhook + poller dedupe against each other).
+    assert s.fingerprint == labels_fingerprint(s.labels) and s.fingerprint.startswith("grafana:")
     assert s.summary == "Error rate spike on admin-server /api/v1/users"
     assert s.labels["service"] == "admin-server"
     assert s.payload["generatorURL"].startswith("https://")

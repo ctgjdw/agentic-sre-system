@@ -41,6 +41,12 @@ toolsets:
   openshift/live-metrics:
     enabled: false
 mcp_servers:
+  # SECURITY INVARIANT: the Grafana MCP tool surface INCLUDES write tools (update_dashboard,
+  # create_incident, annotations, create_datasource, alert-rule mgmt, ...). Unlike the native
+  # toolsets above, this entry's read-only-ness is NOT enforced by config - it rests ENTIRELY
+  # on GRAFANA_SA_TOKEN being a Viewer-role service-account token. That MUST stay Viewer; any
+  # write scope turns the evidence layer write-capable. (Verified 2026-07: POST /api/folders
+  # and /api/datasources both 403 with this token; re-check in the live check if the token rotates.)
   grafana:                               # dashboards / alert rules / datasource exploration
     description: "Grafana dashboards, alerting and datasource exploration"
     config:

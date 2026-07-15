@@ -3,13 +3,13 @@ COMPOSE := docker compose
 .PHONY: up up-fake down logs ps test lint migrate smoke provision holmes-check live-check
 
 up:
-	$(COMPOSE) up -d --build
+	$(COMPOSE) --profile live up -d --build
 
 up-fake:
 	$(COMPOSE) --profile fake up -d --build
 
 down:
-	$(COMPOSE) --profile fake down
+	$(COMPOSE) --profile fake --profile live down
 
 logs:
 	$(COMPOSE) logs -f --tail=100

@@ -1,4 +1,7 @@
+import asyncio
+
 import httpx
+import pytest
 import respx
 
 from sre_gateway.audit import AuditWriter
@@ -53,3 +56,29 @@ def test_fingerprint_is_label_stable():
     a = labels_fingerprint({"alertname": "X", "service": "s"})
     b = labels_fingerprint({"service": "s", "alertname": "X"})
     assert a == b and a.startswith("grafana:")
+
+
+async def test_run_backs_off_on_error_then_resets_and_reraises_cancel(db, monkeypatch):
+    # The supervised loop is where a crash would take the poller down for the process
+    # lifetime, so exercise it: errors double the backoff (capped), success resets it and
+    # marks health ok, and CancelledError propagates cleanly.
+    poller = _poller(db)  # grafana_poll_interval_s defaults to 30
+    calls, sleeps = {"n": 0}, []
+
+    async def fake_poll_once():
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise RuntimeError("boom")
+        return []
+
+    async def fake_sleep(secs):
+        sleeps.append(secs)
+        if len(sleeps) >= 4:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(poller, "poll_once", fake_poll_once)
+    monkeypatch.setattr("sre_gateway.intake.poller_grafana.asyncio.sleep", fake_sleep)
+    with pytest.raises(asyncio.CancelledError):
+        await poller.run()
+    assert sleeps[:3] == [60, 120, 30]   # 30*2, 60*2, then reset to interval on success
+    assert poller.health["grafana_poller"] == "ok"

@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import json
 
 from sre_gateway.domain.enums import CaseKind, SignalSource
 from sre_gateway.domain.signal import Signal, fingerprint_of
@@ -22,7 +23,10 @@ def verify_grafana_hmac(secret: str, body: bytes, signature_header: str | None) 
 def labels_fingerprint(labels: dict) -> str:
     # Shared by the webhook and poller intake paths (instead of Grafana's own per-alert
     # "fingerprint" field) so both dedupe against each other on the same label set.
-    return "grafana:" + fingerprint_of(*sorted(f"{k}={v}" for k, v in labels.items()))
+    # Encode via json.dumps(sorted items) rather than joining "k=v" with "|": a label
+    # value containing "|" or "=" would otherwise collide two distinct alerts into one
+    # case (and silently suppress a real incident).
+    return "grafana:" + fingerprint_of(json.dumps(sorted(labels.items())))
 
 
 def normalize_grafana(payload: dict) -> list[Signal]:

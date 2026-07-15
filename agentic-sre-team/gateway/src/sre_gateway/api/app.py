@@ -74,15 +74,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # A down DB should surface as degraded health at request time, not a boot failure.
                 app.state.health["db"] = "degraded"
 
+            await runner.relaunch_open_cases()
+            # Start the poller LAST so a relaunch failure can't orphan it (it would keep
+            # polling with no cancel path). Gate on the token too: without it the poller
+            # would loop on `Authorization: Bearer None` 401s.
             poller_task: asyncio.Task | None = None
-            if settings.grafana_poll_enabled and settings.grafana_url:
+            if (settings.grafana_poll_enabled and settings.grafana_url
+                    and settings.grafana_sa_token):
                 poller = GrafanaPoller(settings, app.state.intake, app.state.audit,
                                        app.state.health)
                 poller_task = asyncio.create_task(poller.run())
             else:
                 app.state.health["grafana_poller"] = "disabled"
-
-            await runner.relaunch_open_cases()
             yield
             if poller_task is not None:
                 poller_task.cancel()

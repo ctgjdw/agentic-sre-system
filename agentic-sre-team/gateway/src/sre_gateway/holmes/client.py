@@ -27,9 +27,9 @@ def _parse_tool_call(entry: dict) -> HolmesToolCall:
     result and legacy key names (arguments/toolset) for the fake and any old callers."""
     result = entry.get("result", {})
     if isinstance(result, dict):
-        data = result.get("data", "")
+        data = result.get("data") or ""   # present-but-null -> "" (not json.dumps(None)="null")
         text = data if isinstance(data, str) else json.dumps(data, default=str)
-        invocation = result.get("invocation", "")
+        invocation = result.get("invocation") or ""
     else:
         text, invocation = str(result), ""
     return HolmesToolCall(
@@ -66,7 +66,7 @@ class HolmesClient:
             res.raise_for_status()
             body = res.json()
             return HolmesAnswer(
-                text=str(body.get("analysis", "")),
+                text=str(body.get("analysis") or ""),
                 tool_calls=[_parse_tool_call(t) for t in body.get("tool_calls", [])],
                 raw=body)
 
@@ -94,6 +94,13 @@ class HolmesClient:
                     elif event_name == "ai_answer_end":
                         # No tool_calls in this payload; they're accumulated above
                         # from tool_calling_result events as they stream in.
-                        answer.text = str(data.get("analysis", ""))
+                        answer.text = str(data.get("analysis") or "")
                         answer.raw = data
+                    elif event_name == "error":
+                        # Surface the real upstream failure instead of letting an empty
+                        # answer.text degrade downstream as a confusing JSON parse error.
+                        msg = data.get("msg") or data.get("description") or "unknown error"
+                        raise RuntimeError(f"holmes stream error: {msg}")
+        if not answer.text:
+            raise RuntimeError("holmes stream ended without an answer (no ai_answer_end)")
         return answer
