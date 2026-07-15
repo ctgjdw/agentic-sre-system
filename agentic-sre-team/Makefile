@@ -1,6 +1,6 @@
 COMPOSE := docker compose
 
-.PHONY: up up-fake down logs ps test lint migrate smoke provision holmes-check
+.PHONY: up up-fake down logs ps test lint migrate smoke provision holmes-check live-check
 
 up:
 	$(COMPOSE) up -d --build
@@ -37,3 +37,6 @@ holmes-check:
 	  -H 'Content-Type: application/json' \
 	  -d '{"ask": "Domain: metrics\nUsing PromQL, report the value of the `up` metric and how many series are up.", "model": "vertex_ai/gemini-2.5-pro"}' \
 	  | python3 -m json.tool | head -80
+
+live-check:
+	cd gateway && uv run python ../scripts/live_check.py

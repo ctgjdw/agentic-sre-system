@@ -29,8 +29,11 @@ services:
       SRE_MODELS_PROFILE: ${SRE_MODELS_PROFILE:-local}
       SRE_HOLMES_URL: ${SRE_HOLMES_URL:-http://holmes:5050}
       SRE_FAKE_SCRIPT_DIR: ${SRE_FAKE_SCRIPT_DIR:-}
+      # ADC path inside the container (mounted below); overrides the host path in .env
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp.json
     volumes:
       - ./config:/config:ro
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:/secrets/gcp.json:ro
     ports:
       - "8080:8080"
     depends_on:

@@ -9,9 +9,12 @@ tiers:
     model: gemini-2.5-flash
     params: {temperature: 0}
   frontier:
-    provider: vertex-anthropic
-    model: claude-sonnet-4-5@20250929   # verify current Vertex Claude id in Task 25
-    params: {temperature: 0.2, max_tokens: 8000}
+    provider: vertex-gemini
+    # Claude-on-Vertex is not enabled in this project's Model Garden (all anthropic
+    # ids 404, 2026-07); Gemini 2.5 Pro is the most capable available model. Swapping
+    # back to Claude is a config-only change once Model Garden is enabled (spec 12).
+    model: gemini-2.5-pro
+    params: {temperature: 0.2, max_output_tokens: 8000}
 embeddings:
   provider: vertex          # vertex | openai-compatible | fake
   model: gemini-embedding-001
@@ -19,10 +22,10 @@ embeddings:
 holmes:                     # LiteLLM model strings passed per-request to /api/chat
   small: vertex_ai/gemini-2.5-flash
   medium: vertex_ai/gemini-2.5-flash
-  frontier: vertex_ai/claude-sonnet-4-5@20250929
+  frontier: vertex_ai/gemini-2.5-pro
 pricing:                    # usd per 1M tokens, for spend display and budgets
   gemini-2.5-flash: {input: 0.30, output: 2.50}
-  claude-sonnet-4-5@20250929: {input: 3.00, output: 15.00}
+  gemini-2.5-pro: {input: 1.25, output: 10.00}
 vertex:
   project: ${GOOGLE_CLOUD_PROJECT}
   location: ${GOOGLE_CLOUD_LOCATION}

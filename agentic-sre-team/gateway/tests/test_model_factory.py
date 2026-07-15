@@ -10,7 +10,10 @@ CONFIG_DIR = Path(__file__).parents[2] / "config"
 def test_local_profile_parses(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "proj-x")
     cfg = load_models_config(CONFIG_DIR / "models.yaml")
-    assert cfg.tiers["frontier"].provider == "vertex-anthropic"
+    # Frontier is Gemini 2.5 Pro: Claude-on-Vertex is not enabled in Model Garden, so
+    # the frontier tier falls back to Google's most capable model (a config-only swap).
+    assert cfg.tiers["frontier"].provider == "vertex-gemini"
+    assert cfg.tiers["frontier"].model == "gemini-2.5-pro"
     assert cfg.vertex["project"] == "proj-x"
     f = ModelFactory(cfg)
     assert f.holmes_model("medium") == "vertex_ai/gemini-2.5-flash"
