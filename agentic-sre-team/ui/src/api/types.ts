@@ -77,6 +77,53 @@ export interface Artifact {
   created_at: string;
 }
 
+// Shapes of Artifact.structured (RcaOut / RunbookOut .model_dump() from the graph nodes).
+export interface CausalStep {
+  step: string;
+  eids: string[];
+}
+export interface TimelineEntry {
+  ts: string;
+  text: string;
+  eids: string[];
+}
+export interface Alternative {
+  statement: string;
+  why_rejected: string;
+  eids: string[];
+}
+export interface Claim {
+  text: string;
+  eids: string[];
+}
+export interface RcaStructured {
+  mitigation_md: string;
+  causal_chain: CausalStep[];
+  blast_radius_md: string;
+  timeline: TimelineEntry[];
+  alternatives: Alternative[];
+  monitoring_gaps_md: string;
+  claims: Claim[];
+  confidence: number;
+}
+export interface RunbookStep {
+  title: string;
+  detail: string;
+  command: string | null;
+}
+export interface PatchFile {
+  path: string;
+  content: string;
+}
+export interface RunbookStructured {
+  pre_checks: string[];
+  steps: RunbookStep[];
+  post_checks: string[];
+  rollback: string[];
+  risk_notes_md: string;
+  patch_files: PatchFile[] | null;
+}
+
 export interface Approval {
   gate: string;
   decision: string;
