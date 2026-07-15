@@ -7,7 +7,7 @@ async def test_healthz_ok(client):
     body = res.json()
     assert body["status"] == "ok"
     assert body["service"] == "sre-gateway"
-    assert body["components"] == {"db": "ok"}
+    assert body["components"] == {"db": "ok", "grafana_poller": "disabled"}
 
 
 def test_settings_env_prefix(monkeypatch):

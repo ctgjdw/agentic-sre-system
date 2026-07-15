@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -16,6 +18,7 @@ from sre_gateway.graph.runner import CaseRunner
 from sre_gateway.holmes.client import HolmesClient
 from sre_gateway.intake.grouping import CorrelationGrouping, load_grouping
 from sre_gateway.intake.noise import NoiseControl
+from sre_gateway.intake.poller_grafana import GrafanaPoller
 from sre_gateway.intake.service import IntakeService
 from sre_gateway.llm.factory import ModelFactory, load_models_config
 from sre_gateway.manifests import load_manifests
@@ -70,8 +73,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # A down DB should surface as degraded health at request time, not a boot failure.
                 app.state.health["db"] = "degraded"
 
+            poller_task: asyncio.Task | None = None
+            if settings.grafana_poll_enabled and settings.grafana_url:
+                poller = GrafanaPoller(settings, app.state.intake, app.state.audit,
+                                       app.state.health)
+                poller_task = asyncio.create_task(poller.run())
+            else:
+                app.state.health["grafana_poller"] = "disabled"
+
             await runner.relaunch_open_cases()
             yield
+            if poller_task is not None:
+                poller_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await poller_task
             await runner.stop()
         await engine.dispose()
 

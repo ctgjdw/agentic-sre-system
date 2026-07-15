@@ -19,6 +19,12 @@ def verify_grafana_hmac(secret: str, body: bytes, signature_header: str | None) 
     return hmac.compare_digest(expected, candidate)
 
 
+def labels_fingerprint(labels: dict) -> str:
+    # Shared by the webhook and poller intake paths (instead of Grafana's own per-alert
+    # "fingerprint" field) so both dedupe against each other on the same label set.
+    return "grafana:" + fingerprint_of(*sorted(f"{k}={v}" for k, v in labels.items()))
+
+
 def normalize_grafana(payload: dict) -> list[Signal]:
     signals: list[Signal] = []
     for alert in payload.get("alerts", []):
@@ -26,14 +32,11 @@ def normalize_grafana(payload: dict) -> list[Signal]:
             continue
         labels = dict(alert.get("labels", {}))
         annotations = alert.get("annotations", {})
-        fp = alert.get("fingerprint") or fingerprint_of(
-            labels.get("alertname", ""), *sorted(f"{k}={v}" for k, v in labels.items())
-        )
         signals.append(Signal(
             source=SignalSource.grafana,
             reporter="grafana-alerting",
             kind=CaseKind.incident,
-            fingerprint=f"grafana:{fp}",
+            fingerprint=labels_fingerprint(labels),
             summary=annotations.get("summary") or labels.get("alertname", "Grafana alert"),
             labels=labels,
             payload={

@@ -14,7 +14,7 @@ def test_normalize_produces_one_signal_per_firing_alert():
     s = signals[0]
     assert s.source == "grafana"
     assert s.kind == "incident"
-    assert s.fingerprint == "grafana:c4a2f1d9e8b7a3f0"
+    assert s.fingerprint == "grafana:7ea491214dce4a412d22341d42151040"
     assert s.summary == "Error rate spike on admin-server /api/v1/users"
     assert s.labels["service"] == "admin-server"
     assert s.payload["generatorURL"].startswith("https://")
