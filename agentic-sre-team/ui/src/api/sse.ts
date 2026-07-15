@@ -41,6 +41,10 @@ export function useCaseStream(caseId: string): { events: StreamEvent[]; connecte
     source.onopen = () => setConnected(true);
     source.onerror = () => setConnected(false);
     const push = (type: string) => (e: MessageEvent) => {
+      // A listener named "error" also catches EventSource's OWN connection-error event,
+      // which is an Event (not a MessageEvent) with no `data`. Ignore those - a real
+      // server `error` frame always carries a JSON payload. onerror handles reconnect UI.
+      if (typeof e.data !== "string") return;
       let payload: Record<string, unknown> = {};
       try {
         payload = JSON.parse(e.data);
