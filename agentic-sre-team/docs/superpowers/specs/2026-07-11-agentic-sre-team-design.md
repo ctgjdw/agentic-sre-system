@@ -149,9 +149,13 @@ gateway for no functional gain.
    plus any attached context into a `Signal` with `source: chat` and runs
    the standard case graph with all gates. Chat is a first-class intake
    path, not a side channel.
-3. **Telegram reports** - bot via long polling. Messages in the configured
-   group/DM become human-report signals. The bot also carries outbound
-   notifications and approval buttons.
+3. **Telegram reports** - bot via long polling. A **direct message to the
+   bot** ("investigate ...") becomes a human-report signal; the report path
+   is intentionally DM-only (the group is a notification and approval
+   surface, not an intake surface), which also sidesteps Bot API privacy
+   mode - a privacy-mode bot never receives free-form group chatter, but DMs
+   are always delivered. The bot also carries outbound notifications and
+   approval buttons in the configured group.
 4. **Pipeline failures** - GitHub `workflow_run` webhooks (conclusion:
    failure) and GitLab pipeline-event webhooks (status: failed), both
    signature-verified, for environments where the SCM can reach the gateway;

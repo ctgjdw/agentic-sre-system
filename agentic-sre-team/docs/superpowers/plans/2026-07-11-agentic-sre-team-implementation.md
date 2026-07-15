@@ -7632,10 +7632,10 @@ Branch: `feat/sre-team-p6-telegram`
 - Consumes: Telegram Bot API (docs-check: https://core.telegram.org/bots/api - `getUpdates` long polling, `sendMessage` with `reply_markup.inline_keyboard`, `answerCallbackQuery`, `callback_query` update shape), `apply_decision`, `IntakeService`, `IncidentScorer`.
 - Produces:
   - `TelegramChannel(settings, on_decision, on_report, health)` implementing `Channel`:
-    - `async send(text, *, buttons=None) -> str | None` - `POST /bot{token}/sendMessage` to `settings.telegram_chat_id`; `buttons` (`[{text, data}]`) map to one inline-keyboard row (`callback_data=data`). Returns message id.
+    - `async send(text, *, buttons=None, chat_id=None) -> str | None` - `POST /bot{token}/sendMessage`; `chat_id` defaults to `settings.telegram_chat_id` (the group) for outbound notifications and gate buttons, and is passed explicitly to reply into a DM. `buttons` (`[{text, data}]`) map to one inline-keyboard row (`callback_data=data`). Returns message id. (The `Channel` protocol only requires `send(text, *, buttons=None)`; `chat_id` is an extra optional param used by the Telegram report path.)
     - `async run_polling()` - supervised loop: `GET /getUpdates?timeout=50&offset=<n>` (httpx timeout 60), advances offset past every processed update, exponential backoff to 60s on errors, `health["telegram"]` status.
     - Callback handling: `callback_query.data` of form `dec:<case_id>:<gate>:<approve|reject>`; **only user ids in `settings.telegram_allowed_user_ids` may decide** - others get an `answerCallbackQuery` "not authorized". Authorized: `await on_decision(case_id, gate, decision, decided_by=@username-or-id)` and answer with its returned text ("Recorded" / error detail). The identity of the tapper is what lands in the `Approval` row (wireframe Telegram note 3).
-    - Report intake: plain text messages in the configured chat -> `await on_report(text, reporter)`; the reply string is sent back to the chat (ack with case id, "merged into CASE-X as supporting signal" for attach - Telegram note 5, or the canned low-value reply).
+    - Report intake (**DM-only**): a plain-text message in a **private chat** (`message.chat.type == "private"`) -> `await on_report(text, reporter)`; the reply string is sent back **to that DM** (`send(reply, chat_id=<dm chat id>)`) - the ack with case id, "merged into CASE-X as supporting signal" for attach (Telegram note 5), or the canned low-value reply. Messages in the configured group are ignored for intake (the group is the notification + approval surface only); this is also why Bot API privacy mode is a non-issue - DMs are always delivered. Reports are not restricted to `telegram_allowed_user_ids` (a reporter need not be an approver, per the wireframe); the `LlmScorer` + `INCIDENT_THRESHOLD` is the low-value filter.
   - `LlmScorer(models: ModelFactory, audit)` in `intake/scorer_llm.py` implementing `IncidentScorer`: small-tier `call_llm_json` returning `{"score": float}` (system prompt: "Score 0..1 how likely this chat message reports a real production incident"); falls back to `HeuristicScorer` on any exception. Wired into the report path so low-value chatter costs one small-tier call at most, then a canned reply (spec section 3).
   - App wiring changes live in Task 35.
 
@@ -7706,16 +7706,29 @@ async def test_unauthorized_callback_is_refused():
 
 
 @respx.mock
-async def test_group_message_becomes_report_with_reply():
+async def test_dm_becomes_report_with_reply_to_dm():
     sent = respx.post(f"{API}/sendMessage").mock(
         return_value=httpx.Response(200, json={"ok": True, "result": {"message_id": 6}}))
     reports = []
     ch = _channel([], reports)
     await ch.handle_update({"update_id": 2, "message": {
-        "chat": {"id": -10042}, "from": {"username": "minli"},
+        "chat": {"id": 4242, "type": "private"}, "from": {"id": 4242, "username": "minli"},
         "text": "admin console feels slow since noon"}})
     assert reports == [("admin console feels slow since noon", "@minli")]
-    assert b"CASE-0002" in sent.calls[0].request.read()
+    body = sent.calls[0].request.read()
+    assert b"CASE-0002" in body
+    # the reply goes back to the DM chat, not the configured group chat
+    assert b'"chat_id": 4242' in body or b'"chat_id":4242' in body
+
+
+@respx.mock
+async def test_group_message_is_not_a_report():
+    reports = []
+    ch = _channel([], reports)
+    await ch.handle_update({"update_id": 3, "message": {
+        "chat": {"id": -10042, "type": "supergroup"}, "from": {"username": "minli"},
+        "text": "admin console feels slow since noon"}})
+    assert reports == []
 ```
 
 - [ ] **Step 2: Run to verify failure, then implement**
@@ -7748,8 +7761,10 @@ class TelegramChannel:
         self.health = health
         self._base = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
 
-    async def send(self, text: str, *, buttons: list[dict] | None = None) -> str | None:
-        payload: dict = {"chat_id": self.settings.telegram_chat_id, "text": text[:4000]}
+    async def send(self, text: str, *, buttons: list[dict] | None = None,
+                   chat_id: str | int | None = None) -> str | None:
+        payload: dict = {"chat_id": chat_id or self.settings.telegram_chat_id,
+                         "text": text[:4000]}
         if buttons:
             payload["reply_markup"] = {"inline_keyboard": [[
                 {"text": b["text"], "callback_data": b["data"][:64]} for b in buttons]]}
@@ -7781,11 +7796,16 @@ class TelegramChannel:
             return
         message = update.get("message") or {}
         text = message.get("text", "")
-        if text and str(message.get("chat", {}).get("id")) == str(self.settings.telegram_chat_id):
-            reporter = f"@{message.get('from', {}).get('username', 'unknown')}"
+        chat = message.get("chat", {})
+        # Report intake is DM-only: a private chat with the bot. Group messages
+        # (the notification + approval surface) are ignored for intake, which also
+        # means Bot API privacy mode never blocks us - DMs are always delivered.
+        if text and chat.get("type") == "private":
+            frm = message.get("from", {})
+            reporter = f"@{frm['username']}" if frm.get("username") else str(frm.get("id"))
             reply = await self.on_report(text, reporter)
             if reply:
-                await self.send(reply)
+                await self.send(reply, chat_id=chat.get("id"))
 
     async def run_polling(self) -> None:
         offset: int | None = None
@@ -7855,7 +7875,7 @@ class LlmScorer:
 - [ ] **Step 3: Run tests, verify pass**
 
 Run: `uv run pytest tests/test_telegram.py -q`
-Expected: `4 passed`
+Expected: `5 passed`
 
 - [ ] **Step 4: Commit**
 
@@ -7958,7 +7978,7 @@ Live (real Telegram, fake pipeline for determinism): create the bot with @BotFat
 1. Ack message arrives with case id and severity (wireframe TG note 1).
 2. Early-findings status update arrives at synthesize (note 2).
 3. Gate-1 message shows Approve / Reject buttons; tap Approve from the allowed account; verify the Approval row records your @username and `channel=telegram` (note 3), and the decision echo posts (note 4).
-4. Send "admin console feels slow" to the group twice: first opens/attaches a case, and the merge notice matches note 5.
+4. DM the bot "admin console feels slow" twice (report intake is DM-only; the bot replies in the DM): the first opens a case, the second attaches, and the merge notice matches note 5. (A message posted in the group is NOT treated as a report.)
 5. Tap a gate button from a non-allowed account: refused.
 6. Gate-2 approve; both artifacts arrive; case closes.
 

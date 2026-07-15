@@ -658,7 +658,7 @@
 
 <section>
   <h2>Telegram companion flow</h2>
-  <p class="lead">Telegram is the notification and lightweight-decision surface; the console is the verification surface. Every message deep-links to the corresponding console view.</p>
+  <p class="lead">Telegram is the notification and lightweight-decision surface; the console is the verification surface. Every message deep-links to the corresponding console view. The configured group receives outbound updates and mirrors the gates; human reports are raised by <b>direct-messaging the bot</b> ("investigate ..."), which keeps intake off the group and works regardless of Bot API privacy mode.</p>
   <div class="frame-wrap">
     <div class="tg">
       <div class="bubble"><div class="who">SRE TEAM BOT · 14:02</div>Alert received: p95 latency on admin-server user listing. Opened CASE-0143, SEV-3 proposed. Investigating with 4 workers. <span class="mono dim">console link</span> <span class="n">1</span></div>
@@ -669,7 +669,7 @@
       </div>
       <div class="bubble user"><div class="who">ALEX · 14:09</div>[taps Approve]</div>
       <div class="bubble"><div class="who">SRE TEAM BOT · 14:09</div>RCA approved by @alex. Publishing summary here and drafting the runbook next. <span class="n">4</span></div>
-      <div class="bubble"><div class="who">SRE TEAM BOT · 14:11</div>Also: report from @minli was merged into CASE-0143 as supporting signal (matching symptoms, same window). <span class="n">5</span></div>
+      <div class="bubble"><div class="who">SRE TEAM BOT · 14:11</div>Also: @minli's DM report was merged into CASE-0143 as supporting signal (matching symptoms, same window). <span class="n">5</span></div>
     </div>
   </div>
   <ul class="notes">
@@ -677,7 +677,7 @@
     <li><span class="n">2</span><span><b>Status updates at phase transitions only</b>, never a firehose. Confidence is stated in the message.</span></li>
     <li><span class="n">3</span><span><b>Inline approval mirrors gate 1</b>. Approve is allowed from chat because the citation check already passed and the outcome is publish-only; anything needing scrutiny routes to the console. Identity of the tapper is recorded.</span></li>
     <li><span class="n">4</span><span><b>Every decision echoes back</b> with who made it: the chat thread stays a truthful record of the case.</span></li>
-    <li><span class="n">5</span><span><b>Dedup is communicated</b>, so the human reporter learns their report mattered and where it went.</span></li>
+    <li><span class="n">5</span><span><b>Dedup is communicated</b> back to the DM reporter, so the human learns their report mattered and where it went. Reports are DM-only; the group stays notification + approval.</span></li>
   </ul>
 </section>
 
