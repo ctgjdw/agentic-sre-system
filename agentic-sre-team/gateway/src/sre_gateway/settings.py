@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     grafana_poll_interval_s: int = 30
     grafana_poll_enabled: bool = False
 
+    telegram_enabled: bool = False
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
     telegram_allowed_user_ids: list[int] = []

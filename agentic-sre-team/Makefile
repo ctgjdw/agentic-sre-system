@@ -36,6 +36,7 @@ migrate:
 
 smoke:
 	SRE_MODELS_PROFILE=fake SRE_HOLMES_URL=http://fake-holmes:5050 \
+	SRE_TELEGRAM_ENABLED=false \
 	SRE_FAKE_SCRIPT_DIR=/app/tests/fixtures/scripts/incident_error_storm \
 	$(COMPOSE) --profile fake up -d --build
 	cd gateway && uv run python ../scripts/smoke.py
@@ -46,6 +47,7 @@ e2e:
 	# deterministic run. `-v` drops the postgres volume before bringing the stack up.
 	$(COMPOSE) --profile fake --profile live --profile ui down -v
 	SRE_MODELS_PROFILE=fake SRE_HOLMES_URL=http://fake-holmes:5050 \
+	SRE_TELEGRAM_ENABLED=false \
 	SRE_FAKE_SCRIPT_DIR=/app/tests/fixtures/scripts/incident_error_storm \
 	$(COMPOSE) --profile fake --profile ui up -d --build
 	cd ui && npx playwright test --config e2e/playwright.config.ts

@@ -29,6 +29,11 @@ services:
       SRE_MODELS_PROFILE: ${SRE_MODELS_PROFILE:-local}
       SRE_HOLMES_URL: ${SRE_HOLMES_URL:-http://holmes:5050}
       SRE_FAKE_SCRIPT_DIR: ${SRE_FAKE_SCRIPT_DIR:-}
+      # Interpolated here (not just via env_file) so the environment block wins over
+      # env_file: `make smoke`/`make e2e` export SRE_TELEGRAM_ENABLED=false to force the
+      # fake profile onto LogChannel even when .env carries real creds; `make up` inherits
+      # the .env value (true when the operator enables the bot).
+      SRE_TELEGRAM_ENABLED: ${SRE_TELEGRAM_ENABLED:-false}
       # ADC path inside the container (mounted below); overrides the host path in .env
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp.json
     volumes:
