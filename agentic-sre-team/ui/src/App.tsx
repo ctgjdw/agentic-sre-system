@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { TopBar } from "./components/TopBar";
 import { ArtifactScreen } from "./screens/ArtifactScreen";
 import { CaseDetailScreen } from "./screens/CaseDetailScreen";
+import { GovernanceScreen } from "./screens/GovernanceScreen";
 import { QueueScreen } from "./screens/QueueScreen";
 import "./theme.css";
 
@@ -19,7 +20,7 @@ export default function App() {
             <Route path="/cases" element={<QueueScreen />} />
             <Route path="/cases/:id" element={<CaseDetailScreen />} />
             <Route path="/cases/:id/artifact/:kind" element={<ArtifactScreen />} />
-            <Route path="/governance" element={<div>governance (Task 32)</div>} />
+            <Route path="/governance" element={<GovernanceScreen />} />
             <Route path="/chat" element={<div>chat (Task 45)</div>} />
           </Routes>
         </main>
