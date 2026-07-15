@@ -97,9 +97,15 @@ export function CaseDetailScreen() {
     if (text) await apiPost(`/api/cases/${id}/context`, { text, author: "console" });
   };
 
+  // The gateway closes the SSE stream once a run goes idle (waiting at a gate, closed,
+  // or parked), so EventSource auto-reconnects and `connected` flaps - that's expected
+  // steady state, not an error. Only surface the reconnect banner while the case is
+  // actually meant to be streaming (status === "open").
+  const showReconnecting = !connected && c.status === "open";
+
   return (
     <section>
-      {!connected && (
+      {showReconnecting && (
         <div className="mono" style={{ background: "var(--accent-soft)", padding: "4px 10px", marginTop: 8 }}>
           Live stream reconnecting - showing last saved state.
         </div>
