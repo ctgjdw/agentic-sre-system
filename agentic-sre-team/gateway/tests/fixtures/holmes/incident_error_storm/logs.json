@@ -2,18 +2,26 @@
   "analysis": "{\"summary\": \"admin-server logs show pool-exhaustion errors starting 14:02:11 and a spike in per-request calls to the keycloak admin API on the group-members route, coincident with the PR #212 deploy\", \"findings\": [{\"hid\": \"H1\", \"direction\": \"for\", \"note\": \"247 'pool exhausted' errors in admin-server logs between 14:02:11-14:29, first occurrence 14:02:11 matches the 5xx spike\", \"evidence_idx\": [0]}, {\"hid\": \"H2\", \"direction\": \"for\", \"note\": \"keycloak-admin-api call volume per request jumped from 1 to avg 42 on /api/v1/groups/{id}/members right after the PR #212 deploy\", \"evidence_idx\": [1]}], \"proposed_hypotheses\": []}",
   "tool_calls": [
     {
+      "tool_call_id": "call_1",
       "tool_name": "loki_query_range",
-      "toolset": "loki",
+      "toolset_name": "loki",
       "description": "admin-server error-level logs around the 5xx spike window",
-      "arguments": "{service=\"admin-server\"} |= \"level=error\" | json | line_format \"{{.msg}}\"",
-      "result": "247 lines matching 'error acquiring connection from pool: pool exhausted' between 14:02:11 and 14:29:00 UTC, first occurrence 14:02:11"
+      "result": {
+        "status": "success",
+        "invocation": "{service=\"admin-server\"} |= \"level=error\" | json | line_format \"{{.msg}}\"",
+        "data": "247 lines matching 'error acquiring connection from pool: pool exhausted' between 14:02:11 and 14:29:00 UTC, first occurrence 14:02:11"
+      }
     },
     {
+      "tool_call_id": "call_2",
       "tool_name": "loki_query",
-      "toolset": "loki",
+      "toolset_name": "loki",
       "description": "per-request call count to the keycloak admin API extracted from admin-server access logs",
-      "arguments": "sum by (route) (count_over_time({service=\"admin-server\"} |= \"keycloak-admin-api\" [5m]))",
-      "result": "/api/v1/groups/{id}/members now issues 1 keycloak-admin-api call per group member (avg 42/request) vs 1 call/request before 14:00; step change lines up with the PR #212 deploy commit"
+      "result": {
+        "status": "success",
+        "invocation": "sum by (route) (count_over_time({service=\"admin-server\"} |= \"keycloak-admin-api\" [5m]))",
+        "data": "/api/v1/groups/{id}/members now issues 1 keycloak-admin-api call per group member (avg 42/request) vs 1 call/request before 14:00; step change lines up with the PR #212 deploy commit"
+      }
     }
   ]
 }

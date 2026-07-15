@@ -33,13 +33,13 @@ async def chat(request: Request):
 
     async def sse():
         for tc in fixture["tool_calls"]:
-            yield _event("tool_start", {"tool_name": tc["tool_name"],
-                                        "toolset": tc.get("toolset", ""),
-                                        "description": tc.get("description", "")})
+            yield _event("start_tool_calling", {"tool_name": tc["tool_name"],
+                                                 "toolset_name": tc.get("toolset_name", ""),
+                                                 "description": tc.get("description", "")})
             await asyncio.sleep(0)
-            yield _event("tool_result", tc)
-        yield _event("answer", {"analysis": fixture["analysis"],
-                                "tool_calls": fixture["tool_calls"]})
+            yield _event("tool_calling_result", tc)
+        # Real Holmes doesn't include tool_calls in the final event.
+        yield _event("ai_answer_end", {"analysis": fixture["analysis"]})
 
     return StreamingResponse(sse(), media_type="text/event-stream")
 

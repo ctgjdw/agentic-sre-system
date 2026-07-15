@@ -22,12 +22,22 @@ class HolmesAnswer:
 
 
 def _parse_tool_call(entry: dict) -> HolmesToolCall:
+    """Parse a real ToolCallResult (result is a nested StructuredToolResult with the
+    output text in .data and the invocation in .invocation); tolerate a plain-string
+    result and legacy key names (arguments/toolset) for the fake and any old callers."""
+    result = entry.get("result", {})
+    if isinstance(result, dict):
+        data = result.get("data", "")
+        text = data if isinstance(data, str) else json.dumps(data, default=str)
+        invocation = result.get("invocation", "")
+    else:
+        text, invocation = str(result), ""
     return HolmesToolCall(
         tool_name=entry.get("tool_name", entry.get("name", "unknown")),
-        toolset=entry.get("toolset", ""),
+        toolset=entry.get("toolset_name", entry.get("toolset", "")),
         description=entry.get("description", ""),
-        invocation=str(entry.get("arguments", entry.get("invocation", ""))),
-        result=str(entry.get("result", ""))[:4000],
+        invocation=str(invocation or entry.get("invocation", "") or entry.get("description", "")),
+        result=str(text)[:4000],
     )
 
 
@@ -42,7 +52,15 @@ class HolmesClient:
                    timeout_s: int = 180) -> HolmesAnswer:
         payload: dict = {"ask": ask, "model": model, "stream": on_event is not None}
         if response_format:
-            payload["response_format"] = response_format
+            # workers.py passes the raw model_json_schema(); wrap it here in Holmes's
+            # json_schema envelope so this module stays the one place that knows the
+            # wire format. strict=false: Vertex structured-output is picky about
+            # strict + additionalProperties.
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "FindingsOut", "strict": False,
+                                "schema": response_format},
+            }
         if on_event is None:
             res = await self._client.post("/api/chat", json=payload, timeout=timeout_s)
             res.raise_for_status()
@@ -62,18 +80,20 @@ class HolmesClient:
                     event_name = line.split(":", 1)[1].strip()
                 elif line.startswith("data:"):
                     data = json.loads(line.split(":", 1)[1].strip() or "{}")
-                    if event_name == "tool_start":
+                    # Real Holmes SSE event names; internal on_event payload types
+                    # ("tool_start"/"tool_result") stay as-is - workers.py and the
+                    # client test depend on those.
+                    if event_name == "start_tool_calling":
                         await on_event({"type": "tool_start", **data})
-                    elif event_name == "tool_result":
+                    elif event_name == "tool_calling_result":
                         tc = _parse_tool_call(data)
                         answer.tool_calls.append(tc)
                         await on_event({"type": "tool_result", "tool_name": tc.tool_name,
                                         "toolset": tc.toolset,
                                         "description": tc.description})
-                    elif event_name == "answer":
+                    elif event_name == "ai_answer_end":
+                        # No tool_calls in this payload; they're accumulated above
+                        # from tool_calling_result events as they stream in.
                         answer.text = str(data.get("analysis", ""))
-                        if not answer.tool_calls and data.get("tool_calls"):
-                            answer.tool_calls = [_parse_tool_call(t)
-                                                 for t in data["tool_calls"]]
                         answer.raw = data
         return answer

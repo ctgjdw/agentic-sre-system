@@ -2,18 +2,26 @@
   "analysis": "{\"summary\": \"admin-server 5xx ratio at 18% since 14:02; keycloak-db connections 5x baseline\", \"findings\": [{\"hid\": \"H1\", \"direction\": \"for\", \"note\": \"5xx ratio spiked to 18% at 14:02\", \"evidence_idx\": [0]}, {\"hid\": \"H3\", \"direction\": \"against\", \"note\": \"host CPU flat at 22%\", \"evidence_idx\": [1]}], \"proposed_hypotheses\": []}",
   "tool_calls": [
     {
+      "tool_call_id": "call_1",
       "tool_name": "prometheus_query_range",
-      "toolset": "prometheus",
+      "toolset_name": "prometheus",
       "description": "5xx ratio by route via Kong",
-      "arguments": "sum(rate(kong_http_requests_total{code=~\"5..\"}[5m])) / sum(rate(kong_http_requests_total[5m]))",
-      "result": "0.18 from 14:02, baseline 0.002"
+      "result": {
+        "status": "success",
+        "invocation": "sum(rate(kong_http_requests_total{code=~\"5..\"}[5m])) / sum(rate(kong_http_requests_total[5m]))",
+        "data": "0.18 from 14:02, baseline 0.002"
+      }
     },
     {
+      "tool_call_id": "call_2",
       "tool_name": "prometheus_query",
-      "toolset": "prometheus",
+      "toolset_name": "prometheus",
       "description": "docker host cpu",
-      "arguments": "avg(rate(node_cpu_seconds_total{mode!=\"idle\"}[5m]))",
-      "result": "0.22 flat"
+      "result": {
+        "status": "success",
+        "invocation": "avg(rate(node_cpu_seconds_total{mode!=\"idle\"}[5m]))",
+        "data": "0.22 flat"
+      }
     }
   ]
 }

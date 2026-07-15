@@ -2,11 +2,15 @@
     "analysis": "the model rambled and never emitted a JSON object",
     "tool_calls": [
         {
+            "tool_call_id": "call_1",
             "tool_name": "prometheus_query",
-            "toolset": "prometheus",
+            "toolset_name": "prometheus",
             "description": "docker host cpu",
-            "arguments": "avg(rate(node_cpu_seconds_total{mode!=\"idle\"}[5m]))",
-            "result": "0.22 flat"
+            "result": {
+                "status": "success",
+                "invocation": "avg(rate(node_cpu_seconds_total{mode!=\"idle\"}[5m]))",
+                "data": "0.22 flat"
+            }
         }
     ]
 }

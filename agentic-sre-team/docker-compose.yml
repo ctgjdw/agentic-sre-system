@@ -37,6 +37,25 @@ services:
       postgres:
         condition: service_healthy
 
+  holmes:
+    image: ${HOLMES_IMAGE}
+    container_name: sre-holmes
+    entrypoint: ["python", "server.py"]
+    env_file: .env
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /creds/adc.json
+      VERTEXAI_PROJECT: ${GOOGLE_CLOUD_PROJECT}
+      VERTEXAI_LOCATION: ${GOOGLE_CLOUD_LOCATION}
+    volumes:
+      - ./config/holmes.yaml:/root/.holmes/config.yaml:ro
+      - ${GOOGLE_APPLICATION_CREDENTIALS}:/creds/adc.json:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "5050:5050"
+    networks:
+      - default
+      - spectre
+
   fake-holmes:
     profiles: ["fake"]
     build: ./gateway
@@ -46,6 +65,11 @@ services:
       FAKE_HOLMES_DIR: /app/tests/fixtures/holmes/incident_error_storm
     ports:
       - "5050:5050"
+
+networks:
+  spectre:
+    external: true
+    name: spectre_default
 
 volumes:
   sre-pg:
