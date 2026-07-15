@@ -8,6 +8,7 @@ from sre_gateway.budget import BudgetEnforcer
 from sre_gateway.channels.base import Channel
 from sre_gateway.db.models import Case
 from sre_gateway.environment import EnvironmentConfig
+from sre_gateway.graph.grafana_links import LinkBuilder
 from sre_gateway.holmes.client import HolmesClient
 from sre_gateway.llm.factory import ModelFactory
 from sre_gateway.manifests import AgentManifest
@@ -25,6 +26,7 @@ class GraphDeps:
     holmes: HolmesClient
     channel: Channel
     environment: EnvironmentConfig
+    links: LinkBuilder | None = None
 
 
 def stream_writer():

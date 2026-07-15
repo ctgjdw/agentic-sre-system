@@ -19,6 +19,8 @@ class Settings(BaseSettings):
 
     grafana_url: str | None = None
     grafana_sa_token: str | None = None
+    grafana_prom_ds_uid: str | None = None
+    grafana_loki_ds_uid: str | None = None
     grafana_webhook_secret: str | None = None
     grafana_poll_interval_s: int = 30
     grafana_poll_enabled: bool = False

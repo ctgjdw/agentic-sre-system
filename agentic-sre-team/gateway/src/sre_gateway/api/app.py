@@ -14,6 +14,7 @@ from sre_gateway.environment import load_environment
 from sre_gateway.graph import make_checkpointer
 from sre_gateway.graph.build import build_graph
 from sre_gateway.graph.deps import GraphDeps
+from sre_gateway.graph.grafana_links import LinkBuilder
 from sre_gateway.graph.runner import CaseRunner
 from sre_gateway.holmes.client import HolmesClient
 from sre_gateway.intake.grouping import CorrelationGrouping, load_grouping
@@ -46,7 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         deps = GraphDeps(settings=settings, sessionmaker=app.state.sessionmaker,
                          audit=app.state.audit, models=models, manifests=manifests,
                          budget=budget, holmes=holmes, channel=channel,
-                         environment=environment)
+                         environment=environment, links=LinkBuilder(settings))
         app.state.deps = deps
 
         grouping = CorrelationGrouping(load_grouping(settings.config_dir / "grouping.yaml"))

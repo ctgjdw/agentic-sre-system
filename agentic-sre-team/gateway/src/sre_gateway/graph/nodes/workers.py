@@ -123,15 +123,17 @@ def make_worker(deps: GraphDeps, domain: str):
                 async with deps.sessionmaker() as s:
                     for i, tc in enumerate(answer.tool_calls):
                         eid = idx_to_eid[i]
+                        source_url = (deps.links.url_for(tc.toolset, tc.invocation)
+                                      if deps.links else None)
                         s.add(EvidenceRow(case_id=case_id, eid=eid, worker=domain,
                                           toolset=tc.toolset or tc.tool_name,
                                           invocation=tc.invocation or tc.description,
-                                          excerpt=tc.result[:2000],
+                                          excerpt=tc.result[:2000], source_url=source_url,
                                           hypothesis_links=links[eid]))
                         evidence.append({"eid": eid, "worker": domain,
                                          "toolset": tc.toolset or tc.tool_name,
                                          "invocation": tc.invocation or tc.description,
-                                         "excerpt": tc.result[:2000],
+                                         "excerpt": tc.result[:2000], "source_url": source_url,
                                          "hypothesis_links": links[eid]})
                     await s.commit()
                 report.update(summary=out.summary, findings=findings,
