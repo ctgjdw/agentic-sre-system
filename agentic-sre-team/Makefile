@@ -1,6 +1,6 @@
 COMPOSE := docker compose
 
-.PHONY: up up-fake down logs ps test test-ui lint lint-ui migrate smoke provision holmes-check live-check
+.PHONY: up up-fake down logs ps test test-ui lint lint-ui migrate smoke e2e provision holmes-check live-check
 
 up:
 	$(COMPOSE) --profile live --profile ui up -d --build
@@ -39,6 +39,16 @@ smoke:
 	SRE_FAKE_SCRIPT_DIR=/app/tests/fixtures/scripts/incident_error_storm \
 	$(COMPOSE) --profile fake up -d --build
 	cd gateway && uv run python ../scripts/smoke.py
+
+e2e:
+	# Fresh DB: the fake scripts drive exactly one case per gateway lifetime, so a
+	# clean slate (no persisted open cases relaunched on boot) is required for a
+	# deterministic run. `-v` drops the postgres volume before bringing the stack up.
+	$(COMPOSE) --profile fake --profile live --profile ui down -v
+	SRE_MODELS_PROFILE=fake SRE_HOLMES_URL=http://fake-holmes:5050 \
+	SRE_FAKE_SCRIPT_DIR=/app/tests/fixtures/scripts/incident_error_storm \
+	$(COMPOSE) --profile fake --profile ui up -d --build
+	cd ui && npx playwright test --config e2e/playwright.config.ts
 
 holmes-check:
 	curl -s -X POST localhost:5050/api/chat \
