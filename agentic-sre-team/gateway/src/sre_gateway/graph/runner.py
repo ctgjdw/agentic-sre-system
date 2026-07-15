@@ -77,6 +77,8 @@ class CaseRunner:
         async with self.deps.sessionmaker() as s:
             # Parked time is a human wait too: stamp waiting_since so a later resume
             # excludes it from the active-time wall-clock budget.
+            display_id = (await s.execute(
+                select(Case.display_id).where(Case.id == case_id))).scalar_one_or_none()
             await s.execute(update(Case).where(Case.id == case_id).values(
                 status="needs_human", phase="parked", halt_reason=reason,
                 waiting_since=datetime.now(UTC)))
@@ -84,7 +86,8 @@ class CaseRunner:
         await self.deps.audit.log("budget", actor=actor, case_id=case_id, reason=reason,
                                   manual=True)
         await self._emit(case_id, "parked", {"reason": reason, "actor": actor})
-        await self.deps.channel.send(f"Case {case_id} escalated to human by {actor}: {reason}")
+        await self.deps.channel.send(
+            f"{display_id or 'A case'} escalated to a human by {actor}: {reason}")
 
     async def relaunch_open_cases(self) -> None:
         async with self.deps.sessionmaker() as s:
@@ -169,13 +172,22 @@ class CaseRunner:
             raise
         except Exception as err:
             logger.exception("case %s runner failed", case_id)
+            # Keep the raw error (with node name) in halt_reason + the SSE error frame for
+            # the operator console and audit trail, but never surface UUIDs or internal
+            # graph-node jargon in the human-facing channel message. Look up the display id
+            # so the notification reads "CASE-0006", not the thread UUID.
             async with self.deps.sessionmaker() as s:
+                display_id = (await s.execute(
+                    select(Case.display_id).where(Case.id == case_id))).scalar_one_or_none()
                 await s.execute(update(Case).where(Case.id == case_id).values(
                     status="needs_human", phase="parked",
                     halt_reason=f"runner error: {err}"[:500]))
                 await s.commit()
             await self._emit(case_id, "error", {"error": str(err)[:500]})
-            await self.deps.channel.send(f"Case {case_id} parked on error: {err}")
+            await self.deps.channel.send(
+                f"{display_id or 'A case'} hit an unexpected problem and needs a human. "
+                f"Everything gathered so far is preserved; an engineer can review it in "
+                f"the console.")
 
     async def stop(self) -> None:
         # Cancel AND await every still-running task before callers tear down the
