@@ -6,44 +6,47 @@ toolsets:
   prometheus/metrics:
     enabled: true
     config:
-      prometheus_url: ${GRAFANA_PROM_URL}
+      prometheus_url: "{{ env.GRAFANA_PROM_URL }}"
       headers:
-        Authorization: ${GRAFANA_PROM_AUTH}   # controller finalizes basic-vs-bearer at live check
+        Authorization: "{{ env.GRAFANA_PROM_AUTH }}"   # controller finalizes basic-vs-bearer at live check
   grafana/loki:
     enabled: true
     config:
-      url: ${SRE_GRAFANA_URL}
-      api_key: ${GRAFANA_SA_TOKEN}
+      url: "{{ env.SRE_GRAFANA_URL }}"
+      api_key: "{{ env.GRAFANA_SA_TOKEN }}"
   grafana/tempo:
     enabled: true
     config:
-      url: ${SRE_GRAFANA_URL}
-      api_key: ${GRAFANA_SA_TOKEN}
-      grafana_datasource_uid: ${GRAFANA_TEMPO_DS_UID}
+      url: "{{ env.SRE_GRAFANA_URL }}"
+      api_key: "{{ env.GRAFANA_SA_TOKEN }}"
+      grafana_datasource_uid: "{{ env.GRAFANA_TEMPO_DS_UID }}"
   elasticsearch/data:
     enabled: true
     config:
-      api_url: ${TARGET_OPENSEARCH_URL}
+      api_url: "{{ env.TARGET_OPENSEARCH_URL }}"
       verify_ssl: false
   elasticsearch/cluster:
     enabled: true
     config:
-      api_url: ${TARGET_OPENSEARCH_URL}
+      api_url: "{{ env.TARGET_OPENSEARCH_URL }}"
       verify_ssl: false
   database/sql:                          # postgres/DB health (real 0.36.0 key is database/sql, not database)
     enabled: false                       # controller enables at live check w/ TARGET_PG_RO_URL
   docker/core:                           # real 0.36.0 key is docker/core, not docker
     enabled: false                       # image has no docker CLI; routes via allow-listed bash. Off.
-  openshift/core: {enabled: false}
-  openshift/logs: {enabled: false}
-  openshift/live-metrics: {enabled: false}
+  openshift/core:
+    enabled: false
+  openshift/logs:
+    enabled: false
+  openshift/live-metrics:
+    enabled: false
 mcp_servers:
   grafana:                               # dashboards / alert rules / datasource exploration
     description: "Grafana dashboards, alerting and datasource exploration"
     config:
-      url: ${GRAFANA_MCP_URL}            # https://<stack>.grafana.net/mcp
+      url: "{{ env.GRAFANA_MCP_URL }}"            # https://<stack>.grafana.net/mcp
       mode: streamable-http
       extra_headers:
-        X-Grafana-API-Key: ${GRAFANA_SA_TOKEN}
+        X-Grafana-API-Key: "{{ env.GRAFANA_SA_TOKEN }}"
 # TODO(Phase 7): GitHub/GitLab have NO native Holmes toolset in 0.36.0. The changes/ci workers
 # must reach SCM via an mcp_servers entry (a GitHub/GitLab MCP server). Wire in Phase 7 (Tasks 36-41).
