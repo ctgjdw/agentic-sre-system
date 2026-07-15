@@ -75,6 +75,18 @@ services:
     # For Spectre-internal evidence (opensearch/PG reached by container hostname), also
     # attach this service to the target env's network (e.g. spectre_default).
 
+  ui:
+    # Ops console (nginx serving the static build + proxying /api/ to the gateway).
+    # Behind its own "ui" profile so `make smoke` (--profile fake) stays gateway-only
+    # and never rebuilds the frontend; `make up`/`up-fake` add --profile ui.
+    profiles: ["ui"]
+    build: ./ui
+    container_name: sre-ui
+    ports:
+      - "8088:80"
+    depends_on:
+      - gateway
+
   fake-holmes:
     profiles: ["fake"]
     build: ./gateway

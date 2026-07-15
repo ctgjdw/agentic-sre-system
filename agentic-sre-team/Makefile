@@ -1,15 +1,15 @@
 COMPOSE := docker compose
 
-.PHONY: up up-fake down logs ps test lint migrate smoke provision holmes-check live-check
+.PHONY: up up-fake down logs ps test test-ui lint lint-ui migrate smoke provision holmes-check live-check
 
 up:
-	$(COMPOSE) --profile live up -d --build
+	$(COMPOSE) --profile live --profile ui up -d --build
 
 up-fake:
-	$(COMPOSE) --profile fake up -d --build
+	$(COMPOSE) --profile fake --profile ui up -d --build
 
 down:
-	$(COMPOSE) --profile fake --profile live down
+	$(COMPOSE) --profile fake --profile live --profile ui down
 
 logs:
 	$(COMPOSE) logs -f --tail=100
@@ -19,9 +19,17 @@ ps:
 
 test:
 	cd gateway && uv run pytest -q
+	$(MAKE) test-ui
+
+test-ui:
+	cd ui && npm test
 
 lint:
 	cd gateway && uv run ruff check .
+	$(MAKE) lint-ui
+
+lint-ui:
+	cd ui && npm run lint
 
 migrate:
 	cd gateway && uv run alembic upgrade head
