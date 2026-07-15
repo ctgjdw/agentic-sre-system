@@ -94,9 +94,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         await apply_decision(app.state.sessionmaker, runner, case_id, gate,
                                              decision=decision, decided_by=decided_by,
                                              channel="telegram")
-                        return "Recorded - publishing next"
                     except HTTPException as err:
                         return str(err.detail)
+                    # Short toast shown on the tapped button; the gate node posts the full
+                    # decision echo to the group. Keep it accurate to what happens next:
+                    # a reject loops back to a redraft, gate-1 approve drafts the runbook,
+                    # only a gate-2 approve publishes.
+                    if decision == "reject":
+                        return "Recorded - sending back for a redraft"
+                    if gate == "rca":
+                        return "Recorded - drafting the runbook next"
+                    return "Recorded - publishing next"
 
                 async def _on_report(text_: str, reporter: str) -> str:
                     return await handle_report(app.state.intake, scorer, text_, reporter)
