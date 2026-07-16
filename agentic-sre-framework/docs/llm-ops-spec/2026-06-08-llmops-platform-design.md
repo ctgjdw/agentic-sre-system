@@ -451,7 +451,7 @@ adapter sets selected by config (Helm values).
 
 | Capability port | On-prem (OpenShift) | Online (AWS) |
 |---|---|---|
-| Agent runtime | Custom runtime (**TBD**) | Bedrock AgentCore |
+| Agent runtime | Custom runtime (**TBD**) | Google Vertex |
 | LLM gateway | LiteLLM (self-hosted on OCP) → vLLM | LiteLLM (ECS/Fargate or EKS) → Bedrock |
 | LLM observability | Langfuse (self-hosted on OCP) | Langfuse (self-hosted on ECS/Fargate) |
 | Ops monitoring | Grafana LGTM | CloudWatch GenAI Observability |
