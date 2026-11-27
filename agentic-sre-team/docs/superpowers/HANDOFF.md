@@ -1,6 +1,17 @@
 # Handoff: Agentic SRE Team - implementation sessions
 
-## Prompt to start the next session with
+> **2026-11-26 Strategic Pivot & Cross-IDE Takeover Notice:**
+> This handoff was originally authored on 2026-07-15 for a macOS Claude Code session targeting cloud providers (Vertex AI, Grafana Cloud, LangSmith Cloud, Telegram). **As of 2026-11-26, the primary project constraint has shifted to Air-Gap-First, Self-Hosted OSS-Models-Only operation without degradation.**
+>
+> **Start new sessions from the portable git-tracked AI-brain instead of laptop-local paths:**
+> 1. Root AI-brain (works on any laptop / any agentic IDE): [`AGENTS.md`](../../../AGENTS.md) (and [`CLAUDE.md`](../../../CLAUDE.md))
+> 2. Latest research, full codebase review, and prioritized P0-P4 air-gap modernization plan: [`docs/2026-11-research-and-architecture-review.md`](../../../docs/2026-11-research-and-architecture-review.md)
+>
+> Note: Laptop-local paths referenced below (`~/Code/agentic-ons/.superpowers/sdd/progress.md`, `~/.claude/projects/-Users-alexgoh-...`) are not in git and are deprecated. The historical Phase 0-6 technical record and deferred watch-items below remain valuable reference context.
+
+---
+
+## Historical Prompt & State (2026-07-15, end of Phase 6)
 
 > Continue executing the `/agentic-sre-team` implementation plan
 > (`agentic-sre-team/docs/superpowers/plans/2026-07-11-agentic-sre-team-implementation.md`)

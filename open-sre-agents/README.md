@@ -1,5 +1,7 @@
 # OpenSRE MVP
 
+> **Archived / Superseded (2026-11-26):** This AWS-native prototype has been superseded by [`agentic-sre-team/`](../agentic-sre-team/) (air-gap-first, self-hosted OSS models, cloud-native stack). See root [`AGENTS.md`](../AGENTS.md) and [`docs/2026-11-research-and-architecture-review.md`](../docs/2026-11-research-and-architecture-review.md) for current project context and roadmap.
+
 A demo that proves the loop: chaos event -> CloudWatch alarm -> OpenSRE investigates -> RCA in Slack.
 
 This branch ships **Plan 1 only** -- the demo backbone (UI + SUT + RDS). Plans 2-4 add the OpenSRE host, alert pipeline, and FIS chaos.

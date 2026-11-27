@@ -1,5 +1,7 @@
 # Agentic SRE Workflow
 
+> **Updated Context (2026-11-26):** See root [`AGENTS.md`](../AGENTS.md) and [`docs/2026-11-research-and-architecture-review.md`](../docs/2026-11-research-and-architecture-review.md) for the current monorepo context and updated **Air-Gap-First, Self-Hosted OSS-Models-Only (Zero-Degradation)** constraint. Earlier assumptions below accepting degraded on-prem quality or prioritizing AWS/frontier cloud models are superseded.
+
 This directory contains research and proposed plans for a framework that uses a team of agents to support and automate **Site Reliability Engineering (SRE)** and **Sys Admin** operations.
 
 ## Audience & Output Format
