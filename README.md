@@ -12,9 +12,12 @@ An open-source, cloud-native platform for streamlining **Site Reliability Engine
 
 | Path | Description | Status |
 |---|---|---|
-| [`docs/2026-11-research-and-architecture-review.md`](docs/2026-11-research-and-architecture-review.md) | Late-2026 OSS/CNCF research, full repo architecture review, target air-gap design, and prioritized P0-P4 roadmap | **Current Master Plan** |
+| [`agentic-sre-team/docs/superpowers/specs/2026-11-27-airgap-platform-design.md`](agentic-sre-team/docs/superpowers/specs/2026-11-27-airgap-platform-design.md) | v2.0 System Architecture & Component Design Spec (OSS LLM harness, Tier-0 pre-flight, hybrid RRF, OTel `gen_ai.*`, OIDC, Mattermost, GitLab/GitHub SCM, validator) | **Approved Contract** |
+| [`agentic-sre-team/docs/superpowers/specs/2026-11-27-docker-compose-stack-spec.md`](agentic-sre-team/docs/superpowers/specs/2026-11-27-docker-compose-stack-spec.md) | Local Laptop Docker Compose Stack, Service Configs (`agentgateway`, LiteLLM, Holmes 0.43, LGTM, Keycloak, Langfuse) & Reference SUT Spec | **Approved Contract** |
+| [`agentic-sre-team/docs/superpowers/plans/2026-11-27-airgap-compose-implementation-plan.md`](agentic-sre-team/docs/superpowers/plans/2026-11-27-airgap-compose-implementation-plan.md) | Wave 0-6 Implementation Playbook & Kickoff Prompt for Agentic Orchestrators | **Ready to Execute** |
+| [`docs/2026-11-research-and-architecture-review.md`](docs/2026-11-research-and-architecture-review.md) | Late-2026 OSS/CNCF research, full repo architecture review, target air-gap design, and prioritized P0-P4 roadmap | **Current Master Review** |
 | [`AGENTS.md`](AGENTS.md) / [`CLAUDE.md`](CLAUDE.md) | Portable AI-brain & cross-IDE context for agentic sessions on any machine | **Current** |
-| [`agentic-sre-team/`](agentic-sre-team/) | Primary runnable platform: FastAPI + LangGraph gateway, React 19 Ops Console UI, HolmesGPT sidecar, configs, tests | **Active** (Phases 0-6 complete; pivoting to P0 Air-Gap & OSS Parity) |
+| [`agentic-sre-team/`](agentic-sre-team/) | Primary runnable platform: FastAPI + LangGraph gateway, React 19 Ops Console UI, HolmesGPT sidecar, configs, tests | **Active** (Phases 0-6 complete; v2.0 Compose stack specs ready) |
 | [`agentic-sre-framework/`](agentic-sre-framework/) | Full 9-agent SRE/SysAdmin framework blueprints (`docs/framework/`) and sibling multi-tenant LLMOps platform spec (`docs/llm-ops-spec/`) | Reference Blueprints |
 | [`open-sre-agents/`](open-sre-agents/) | Earlier AWS-native OpenSRE MVP testbed (ECS/RDS/FIS/Lambda/Next.js) | Superseded / Legacy |
 

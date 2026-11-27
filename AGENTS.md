@@ -1,6 +1,6 @@
 # AGENTS.md - Project Context & AI Brain
 
-> **Portable AI Context:** This file is the canonical project brain for **any** agentic IDE or CLI (Antigravity, Claude Code, Cursor, Codex, Windsurf, Gemini CLI, OpenCode) on **any** machine. Keep all durable project context, decisions, constraints, and status inside this git repository -- never rely on laptop-local paths (such as `~/.claude/` or `~/Code/agentic-ons/.superpowers/`).
+> **Portable AI Context:** This file is the canonical project brain for **any** AI coding agent, IDE, or CLI orchestrator on **any** machine. Keep all durable project context, decisions, constraints, and status inside this git repository -- never rely on laptop-local paths (such as `~/.claude/` or `~/Code/agentic-ons/.superpowers/`).
 
 ---
 
@@ -48,14 +48,14 @@
 ### Locked Architecture Decisions (Confirmed 2026-11-26 -- Do Not Reopen Without Asking)
 
 1. **Dual Offline GPU Profiles (Zero Cloud LLM Calls):**
-   - **`local-gpu` (Dev & Testing First):** Operator's local laptop with **NVIDIA Quadro RTX 3000 (54GB total GPU memory)** running Ollama / llama.cpp / vLLM with quantized small/mid OSS models (`Qwen3.5-9B`, `Qwen3.6-35B-A3B`, `Qwen3.6-27B`) + lightweight local embeddings (`Qwen3-Embedding-0.6B` / `nomic-embed-text`).
+   - **`local-gpu` (Dev & Testing First):** Operator's local Windows laptop (**NVIDIA Quadro RTX 3000 Mobile, Turing `sm_75`, 6144 MiB dedicated GDDR6 VRAM + 63.8 GB physical RAM** -- note: Task Manager's "total GPU memory" includes shared system RAM; only 6 GB is dedicated GDDR6 VRAM) running Ollama with quantized hot-pinned GGUF models (`qwen3:4b` default / `qwen3:8b` / `qwen3:30b-a3b` MoE) + native 768-dim `nomic-embed-text` (`OLLAMA_KEEP_ALIVE=-1`, `OLLAMA_MAX_LOADED_MODELS=2` for zero VRAM swap thrashing).
    - **`airgap` (Production Target):** Air-gapped **multi-GPU cluster** running `llm-d` + `vLLM` hosting Small + Medium + Heavy reasoning tiers (`Qwen3.6-35B-A3B`, `Qwen3.6/3.8-27B`, `DeepSeek-V4` / `GLM-5.2` + `Qwen3-Embedding` / `BGE-M3`). Same code; config-only swap (`config/models.local-gpu.yaml` vs `config/models.airgap.yaml`).
-2. **Runtime & Packaging Sequence:** Build the **local Docker Compose "air-gap-in-a-box"** first (self-hosted Grafana LGTM + Ollama/vLLM + gateway + Spectre/demo SUT, zero cloud), then **Kubernetes / OpenShift Helm charts** for the production multi-GPU cluster.
+2. **Runtime & Packaging Sequence:** Build the **local Docker Compose "air-gap-in-a-box"** first (self-hosted Grafana LGTM + Ollama + `agentgateway`/LiteLLM + HolmesGPT `0.43.0` + gateway + `demo-sut`/Spectre, zero cloud LLM/observability), then **Kubernetes / OpenShift Helm charts** for the production multi-GPU cluster.
 3. **Evidence Engine:** **Keep HolmesGPT** (upgrade `0.36.0` -> `0.43.x+`) behind the thin `HolmesClient` seam + `agentgateway` CEL read-only MCP tool filtering, **AND** add a **Tier-0 Deterministic Pre-Flight Collector** ahead of it (instant golden-signal collection + LLM-offline Deterministic Diagnostic Packet fallback).
 4. **Interchangeable LLM Gateway + Offline Observability:**
    - **LLM Gateway MUST be interchangeable via config (`SRE_LLM_GATEWAY_URL`):** Production air-gap currently runs **LiteLLM**, and the operator also wants to evaluate **`agentgateway` (Rust, LF/CNCF)**. Both gateway and HolmesGPT talk standard OpenAI-compatible HTTP so swapping between LiteLLM, `agentgateway`, and direct local Ollama/vLLM requires zero code changes; `agentgateway` also fronts MCP servers for CEL read-only tool filtering and future A2A.
    - **Observability:** Emit **OpenTelemetry GenAI (`gen_ai.*`)** everywhere. Default local laptop export to **Grafana Tempo** (light RAM footprint); put **self-hosted Langfuse (MIT + ClickHouse)** behind an optional local Compose profile (`--profile langfuse`) and always-on in cluster Helm charts.
-5. **Air-Gap Human Surfaces, Auth & SCM:** **Ops Console Web UI** with **toggleable Keycloak OIDC SSO** (`SRE_AUTH_ENABLED`: `false` locally, `true` in air-gap) + **`MattermostChannel`** as primary air-gap chat/approvals (keeping `TelegramChannel` opt-in for online dev) + **self-hosted GitLab** as primary SCM (with GitHub also supported behind `ScmProvider`).
+5. **Air-Gap Human Surfaces, Auth & SCM:** **Ops Console Web UI** with **toggleable Keycloak OIDC SSO** (`SRE_AUTH_ENABLED`: `false` locally, `true` in air-gap) + **`MattermostChannel`** as primary air-gap chat/approvals (keeping `TelegramChannel` opt-in for online dev) + **GitLab** as primary SCM (**`gitlab.com` approved for local laptop testing**; self-hosted GitLab in air-gap via `SRE_GITLAB_BASE_URL`, with GitHub also supported behind `ScmProvider`).
 6. **Legacy MVP:** `open-sre-agents/` stays in place with an archive notice in its `README.md`.
 
 ### Known Bugs & Priority Backlog (Tracked in Git -- See `docs/2026-11-research-and-architecture-review.md`)
@@ -107,17 +107,22 @@ cd agentic-sre-team && make e2e
 
 ---
 
-## 6. Next-Session Kickoff Protocol (RTX 3000 Laptop)
+## 6. Next-Session Kickoff Protocol (RTX 3000 Laptop Implementation)
 
-1. Read this file (`AGENTS.md`) and `docs/2026-11-research-and-architecture-review.md` (Parts 3-5).
-2. Verify baseline tests pass locally (`cd agentic-sre-team && make test && make lint`).
-3. Create branch `feat/sre-team-p0-airgap-oss` off `main`.
-4. Implement **Priority 0 (P0.1 through P0.5)** in incremental, test-verified commits without breaking `make smoke` or `make e2e`.
-5. Validate end-to-end against a local OSS model running on the RTX 3000 GPU (`models.local-gpu.yaml`) before proceeding to **Priority 1**.
+Complete v2.0 design and implementation specifications for executing the full Docker Compose stack on this laptop are authored and ready:
+
+1. Read this file (`AGENTS.md`) plus the three v2.0 implementation contracts:
+   - Architecture & Component Design Spec: `agentic-sre-team/docs/superpowers/specs/2026-11-27-airgap-platform-design.md`
+   - Local Laptop Docker Compose & SUT Spec: `agentic-sre-team/docs/superpowers/specs/2026-11-27-docker-compose-stack-spec.md`
+   - Phased Implementation Plan (Waves 0-6, Tasks `T01`..`T23`): `agentic-sre-team/docs/superpowers/plans/2026-11-27-airgap-compose-implementation-plan.md`
+2. Create branch `feat/sre-team-airgap-compose` off `main`, bootstrap `.gitattributes` + `uv` + `scripts/cli.py` (Wave 0), and verify the 119 gateway + 10 UI + `smoke` baseline passes before editing runtime code.
+3. Execute **Waves 1 through 5** using disjoint-file parallel workers (`P-1`..`P-5`, or sequentially if running single-agent) and sequential integration gates, preserving `smoke` and Playwright `e2e` throughout.
+4. Execute **Wave 6** live bring-up on the Quadro RTX 3000 GPU (`local-gpu + ui + sut`), verifying `agentgateway` CEL read-only MCP filtering, LiteLLM config-swap parity, live chaos incident RCA/Runbook flow, Tempo `gen_ai.*` traces, and LLM-offline Deterministic Diagnostic Packet fallback.
 
 ### Recommended Reading Order for Any New Session
 1. This file (`AGENTS.md`)
-2. `docs/2026-11-research-and-architecture-review.md` (latest research, gap analysis, target air-gap architecture, locked decisions, and P0-P4 roadmap)
-3. `agentic-sre-team/docs/superpowers/specs/2026-07-11-agentic-sre-team-design.md` (baseline v1 system design)
-4. `agentic-sre-team/docs/superpowers/HANDOFF.md` (detailed Phase 0-6 implementation notes & watch-items)
-5. `agentic-sre-team/gateway/src/sre_gateway/` and `agentic-sre-team/config/` (actual runtime code)
+2. `agentic-sre-team/docs/superpowers/plans/2026-11-27-airgap-compose-implementation-plan.md` (Wave 0-6 implementation playbook & kickoff prompt)
+3. `agentic-sre-team/docs/superpowers/specs/2026-11-27-airgap-platform-design.md` (v2.0 component & `StateGraph` design contract)
+4. `agentic-sre-team/docs/superpowers/specs/2026-11-27-docker-compose-stack-spec.md` (v2.0 Docker Compose, configs, and `demo-sut` contract)
+5. `docs/2026-11-research-and-architecture-review.md` (background research, codebase gap analysis, and P0-P4 roadmap)
+6. `agentic-sre-team/docs/superpowers/HANDOFF.md` & `agentic-sre-team/gateway/src/sre_gateway/` (Phase 0-6 history and actual runtime code)
